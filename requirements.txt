@@ -1,0 +1,8 @@
+PyQt6>=6.5
+pandas>=1.4
+fpdf>=1.7
+python-docx>=0.8
+qdarkstyle>=3.0
+pyqtgraph>=0.13
+matplotlib
+PyQt6-WebEngine
