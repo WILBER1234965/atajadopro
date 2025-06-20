@@ -159,7 +159,7 @@ class AvanceTab(QWidget):
         self._set_info()
         rows = self.db.fetchall(
             "SELECT id, name, total, COALESCE(unit_price, incidence, 0) "
-            "FROM items WHERE active=1"
+            "FROM items WHERE active=1 OR lower(CAST(active AS TEXT)) IN ('si','sí')"
         )
         if not rows:
             self._clear_ui()
@@ -344,7 +344,7 @@ class AvanceTab(QWidget):
             SELECT COALESCE(SUM(i.total*COALESCE(i.unit_price,i.incidence,0)*a.quantity/100.0) /
                    SUM(i.total*COALESCE(i.unit_price,i.incidence,0)), 0)
             FROM avances a JOIN items i ON a.item_id=i.id
-            WHERE a.atajado_id=? AND i.active=1
+            WHERE a.atajado_id=? AND (i.active=1 OR lower(CAST(i.active AS TEXT)) IN ('si','sí'))
             """, (self.current_atajado,)
         )[0] * 100
         estado = "Ejecutado" if avg == 100 else "En ejecución"

@@ -14,15 +14,17 @@ class AtajadosTab(QWidget):
         super().__init__()
         self.db = db
         self.layout = QVBoxLayout(self)
+        self._dirty = False
 
-        # Toolbar con Importar, Añadir y Eliminar
+        # Toolbar con Importar, Añadir, Guardar y Eliminar
         toolbar = QHBoxLayout()
         self.import_btn = QPushButton("📥 Importar Atajados")
         self.add_btn    = QPushButton("➕ Registrar Atajado")
         self.del_btn    = QPushButton("🗑 Eliminar Atajado")
-        toolbar.addWidget(self.import_btn)
-        toolbar.addWidget(self.add_btn)
-        toolbar.addWidget(self.del_btn)
+        self.save_btn   = QPushButton("💾 Guardar Cambios")
+        for w in (self.import_btn, self.add_btn, self.save_btn, self.del_btn):
+            toolbar.addWidget(w)
+
         toolbar.addStretch()
         self.layout.addLayout(toolbar)
 
@@ -38,6 +40,7 @@ class AtajadosTab(QWidget):
         # Conexiones
         self.import_btn.clicked.connect(self.import_atajados)
         self.add_btn.clicked.connect(self.open_add)
+        self.save_btn.clicked.connect(self.save_changes)
         self.del_btn.clicked.connect(self.delete_atajado)
         self.table.cellChanged.connect(self.on_cell_changed)
 
@@ -65,6 +68,7 @@ class AtajadosTab(QWidget):
                     item.setFlags(item.flags() ^ Qt.ItemFlag.ItemIsEditable)
                 self.table.setItem(r, c, item)
         self._loading = False
+        self._dirty = False
 
     def import_atajados(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -87,6 +91,7 @@ class AtajadosTab(QWidget):
                     (com, int(num), ben, ci, e, n)
                 )
             self.refresh()
+            self._dirty = True
             QMessageBox.information(self, "Importación", "Atajados importados correctamente.")
         except Exception as ex:
             QMessageBox.critical(self, "Error de importación", f"No se pudo importar:\n{ex}")
@@ -121,6 +126,7 @@ class AtajadosTab(QWidget):
                 )
                 dlg.accept()
                 self.refresh()
+                self._dirty = True                
             except ValueError:
                 QMessageBox.warning(dlg, "Error", "Asegúrate de que todos los campos sean válidos y numéricos donde corresponda.")
 
@@ -140,6 +146,7 @@ class AtajadosTab(QWidget):
         ) == QMessageBox.StandardButton.Yes:
             self.db.execute("DELETE FROM atajados WHERE id=?", (iid,))
             self.refresh()
+            self._dirty = True            
 
     def on_cell_changed(self, row, col):
         if self._loading:
@@ -162,5 +169,32 @@ class AtajadosTab(QWidget):
             if field in ("number", "coord_e", "coord_n"):
                 val = float(val)
             self.db.execute(f"UPDATE atajados SET {field}=? WHERE id=?", (val, iid))
+            self._dirty = True
         except ValueError:
             QMessageBox.warning(self, "Error", "Valor inválido.")
+
+    # ------------------------------------------------------------------
+    def save_changes(self):
+        if not self._dirty:
+            QMessageBox.information(self, "Guardar", "No hay cambios pendientes.")
+            return
+        self._dirty = False
+        QMessageBox.information(self, "Guardar", "Cambios de atajados guardados.")
+
+    # ------------------------------------------------------------------
+    def can_close(self) -> bool:
+        if not self._dirty:
+            return True
+        res = QMessageBox.question(
+            self, "Atajados sin guardar",
+            "Tienes cambios sin guardar. ¿Deseas guardarlos antes de salir?",
+            QMessageBox.StandardButton.Save |
+            QMessageBox.StandardButton.Discard |
+            QMessageBox.StandardButton.Cancel
+        )
+        if res == QMessageBox.StandardButton.Save:
+            self.save_changes()
+            return True
+        if res == QMessageBox.StandardButton.Discard:
+            return True
+        return False
