@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QTabWidget, QFileDialog, QMessageBox,
     QLabel, QDialog, QVBoxLayout, QHBoxLayout, QPushButton
 )
-
+from database import Database
 from project_manager import ProyectoManager
 
 # ----------------------------- Lista de pestañas ------------------------------
