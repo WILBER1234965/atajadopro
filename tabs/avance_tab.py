@@ -12,6 +12,7 @@ from __future__ import annotations
 import shutil
 from datetime import datetime
 from pathlib import Path
+import re
 
 from PyQt6.QtCore import Qt, QSize, QDate
 from PyQt6.QtGui import QPixmap, QIcon, QAction
@@ -125,6 +126,8 @@ class AvanceTab(QWidget):
 
         # Cargar selector
         self._populate_selector()
+        self.at_combo.currentTextChanged.connect(self.load_items)
+        
 
     # ===================================================================== #
     #                              Selector                                 #
@@ -150,12 +153,11 @@ class AvanceTab(QWidget):
         if not txt:
             self._clear_ui()
             return
-        try:
-            self.current_atajado = int(txt.split("–")[0].strip())
-        except (ValueError, IndexError):
+        match = re.match(r"(\d+)", txt)
+        if not match:
             self._clear_ui()
             return
-
+        self.current_atajado = int(match.group(1))
         self._set_info()
         rows = self.db.fetchall(
             "SELECT id, name, total, COALESCE(unit_price, incidence, 0) "
