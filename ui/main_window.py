@@ -1,11 +1,7 @@
 # ui/main_window.py
-import sys
-import sqlite3
 from pathlib import Path
-from zipfile import ZipFile, ZIP_DEFLATED
 from importlib import import_module
-from tempfile import mkdtemp
-from shutil import copy2, copytree, rmtree
+
 
 from PyQt6.QtCore import Qt, QSettings
 from PyQt6.QtGui  import QIcon, QAction, QColor, QPixmap
@@ -14,8 +10,7 @@ from PyQt6.QtWidgets import (
     QLabel, QDialog, QVBoxLayout, QHBoxLayout, QPushButton
 )
 
-from database import Database, IMAGES_DIR
-
+from project_manager import ProyectoManager
 
 # ----------------------------- Lista de pestañas ------------------------------
 _TABS = [
@@ -32,9 +27,10 @@ class MainWindow(QMainWindow):
     """Ventana principal con QTabWidget oculto y navegación vía menú."""
 
     # -------------------------------------------------------------------------
-    def __init__(self, db: Database):
+    def __init__(self, manager: ProyectoManager):
         super().__init__()
-        self.db = db
+        self.manager = manager
+        self.db = manager.proyecto.db
         self.setWindowTitle("Seguimiento de Atajados")
         self.resize(1280, 800)
 
@@ -42,7 +38,9 @@ class MainWindow(QMainWindow):
         self._init_menu()        # barra de menú con navegación
         self._init_statusbar()   # “Estás en: …”
         self._apply_theme("dark")
-
+        self.manager.dirtyChanged.connect(self._update_title)
+        self.manager.pathChanged.connect(self._update_title)
+        self._update_title()
     # -------------------------------------------------------------------------
     # Tabs (contenedor de vistas)
     # -------------------------------------------------------------------------
@@ -105,7 +103,7 @@ class MainWindow(QMainWindow):
         m_conf = mb.addMenu("Configuración")
         m_conf.addAction("Tema Claro",  lambda: self._apply_theme("light"))
         m_conf.addAction("Tema Oscuro", lambda: self._apply_theme("dark"))
-        
+
         # Acerca de
         m_about = mb.addMenu("Acerca de")
         m_about.addAction("Sobre la aplicación", self._show_about)
@@ -117,6 +115,13 @@ class MainWindow(QMainWindow):
         self.status_label = QLabel()
         self.statusBar().addPermanentWidget(self.status_label)
         self._update_status()
+
+    def _update_title(self):
+        name = self.manager.proyecto.path.name if self.manager.proyecto.path else "Sin título"
+        title = f"Seguimiento de Atajados - {name}"
+        if self.manager.is_dirty:
+            title = "*" + title
+        self.setWindowTitle(title)
 
     def _update_status(self, *_):
         self.status_label.setText(f"Estás en: {self.tabs.tabText(self.tabs.currentIndex())}")
@@ -155,34 +160,23 @@ class MainWindow(QMainWindow):
     # Nuevo / Abrir / Guardar
     # -------------------------------------------------------------------------
     def _new_project(self):
-        self._replace_db(Database(":memory:"))
+        self.manager.new_project()
+        self._replace_db(self.manager.proyecto.db)
         QMessageBox.information(self, "Nuevo", "Proyecto vacío iniciado.")
 
     def _save_project(self):
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Guardar", filter="Paquete SeguimientoPro (*.spkg)"
-        )
-        if not path:
-            return
+         if self.manager.proyecto.path is None:
+            path, _ = QFileDialog.getSaveFileName(
+                self, "Guardar", filter="Paquete SeguimientoPro (*.spkg)"
+            )
+            if not path:
+                return
+            self.manager.save_project(path)
 
-        tmp = Path(path).with_suffix(".tmpdb")
-        if self.db.db_path == ":memory:":
-            import sqlite3 as _sqlite
-            with _sqlite.connect(tmp) as dest:
-                for line in self.db.conn.iterdump():
-                    if line not in ("BEGIN;", "COMMIT;"):
-                        dest.execute(line)
-        else:
-            copy2(self.db.db_path, tmp)
-
-        with ZipFile(path, "w", ZIP_DEFLATED) as z:
-            z.write(tmp, "atajados.db")
-            if IMAGES_DIR.exists():
-                for img in IMAGES_DIR.rglob("*"):
-                    if img.is_file():
-                        z.write(img, Path("images") / img.relative_to(IMAGES_DIR))
-        tmp.unlink(missing_ok=True)
-        QMessageBox.information(self, "Guardar", "Proyecto guardado.")
+         else:
+            self.manager.save_project()
+    
+            QMessageBox.information(self, "Guardar", "Proyecto guardado.")
 
     def _open_project(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -190,15 +184,13 @@ class MainWindow(QMainWindow):
         )
         if not path:
             return
-        tmp_dir = Path(mkdtemp(prefix="seg_load_"))
-        with ZipFile(path) as z:
-            z.extractall(tmp_dir)
+        try:
+            self.manager.open_project(path)
+        except Exception as e:
+            QMessageBox.warning(self, "Abrir", str(e))
 
-        db_path = tmp_dir / "atajados.db"
-        if not db_path.exists():
-            QMessageBox.warning(self, "Abrir", "El paquete no contiene atajados.db")
             return
-        self._replace_db(Database(db_path))
+        self._replace_db(self.manager.proyecto.db)
         QMessageBox.information(self, "Abrir", "Proyecto cargado correctamente.")
 
     def _replace_db(self, new_db: Database):
@@ -210,7 +202,7 @@ class MainWindow(QMainWindow):
             for m in ("refresh", "load_items"):
                 if hasattr(w, m):
                     getattr(w, m)()
-
+        self._update_title()
     # -------------------------------------------------------------------------
     # Diálogo Acerca de
     # -------------------------------------------------------------------------
@@ -266,6 +258,7 @@ class MainWindow(QMainWindow):
 # --------------------------- Launcher directo ---------------------------------
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    win = MainWindow(Database(":memory:"))
+    manager = ProyectoManager()
+    win = MainWindow(manager)
     win.show()
     sys.exit(app.exec())
