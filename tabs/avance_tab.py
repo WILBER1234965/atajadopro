@@ -1,388 +1,361 @@
 """
-Pestaña de registro de avances de obra.
-Incluye selector de atajado, tabla de ítems, carga de imágenes y guardado.
+tabs/avance_tab.py
+Pestaña profesional de registro de avances
+------------------------------------------
+• Carga todos los ítems activos        • Guarda con UPSERT
+• Selector con autocompletado          • Miniaturas con menú contextual
+• Vista previa a pantalla completa     • Mensajes uniformes (info/warn/error)
 """
 
-import os
+from __future__ import annotations
+
 import shutil
 from datetime import datetime
 from pathlib import Path
 
-import sqlite3
-import pandas as pd
+from PyQt6.QtCore import Qt, QSize, QDate
+from PyQt6.QtGui import QPixmap, QIcon, QAction
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QCompleter,
     QTableWidget, QTableWidgetItem, QPushButton, QFileDialog, QMessageBox,
-    QListWidget, QListWidgetItem, QDialog, QScrollArea, QDateEdit, QLineEdit,
-    QHeaderView
+    QListWidget, QListWidgetItem, QDialog, QScrollArea, QHeaderView,
+    QDateEdit, QLineEdit, QMenu
 )
-from PyQt6.QtCore import Qt, QSize, QDate
-from PyQt6.QtGui import QPixmap, QIcon
 
 from database import Database, IMAGES_DIR
 
 
-# --------------------------------------------------------------------------- #
-#                                Vista previa                                 #
-# --------------------------------------------------------------------------- #
+# ═════════════════════════════════ Vista previa ═════════════════════════════ #
 class ImagePreviewDialog(QDialog):
-    def __init__(self, image_paths, index=0):
+    def __init__(self, paths: list[str], idx: int = 0):
         super().__init__()
-        self.image_paths = image_paths
-        self.index = index
-
-        self.setWindowTitle("Vista Previa")
+        self.paths, self.idx = paths, idx
         self.setWindowState(Qt.WindowState.WindowMaximized)
-        self.setWindowFlags(
-            Qt.WindowType.Window
-            | Qt.WindowType.WindowMinimizeButtonHint
-            | Qt.WindowType.WindowMaximizeButtonHint
-            | Qt.WindowType.WindowCloseButtonHint
-        )
+        self.setWindowTitle("Vista previa")
 
-        main_layout = QVBoxLayout(self)
-
-        # Navegación
+        lay = QVBoxLayout(self)
         nav = QHBoxLayout()
-        self.prev_btn = QPushButton("◀")
-        self.prev_btn.clicked.connect(self.show_prev)
-        nav.addWidget(self.prev_btn)
+        nav.addWidget(QPushButton("◀", clicked=lambda: self._step(-1)))
         nav.addStretch()
-        self.next_btn = QPushButton("▶")
-        self.next_btn.clicked.connect(self.show_next)
-        nav.addWidget(self.next_btn)
-        main_layout.addLayout(nav)
+        nav.addWidget(QPushButton("▶", clicked=lambda: self._step(+1)))
+        lay.addLayout(nav)
 
-        # Área de imagen
-        self.scroll = QScrollArea(self)
-        self.scroll.setWidgetResizable(True)
-        self.label = QLabel(alignment=Qt.AlignmentFlag.AlignCenter)
-        self.scroll.setWidget(self.label)
-        main_layout.addWidget(self.scroll)
+        self.scr = QScrollArea(widgetResizable=True)
+        self.lbl = QLabel(alignment=Qt.AlignmentFlag.AlignCenter)
+        self.scr.setWidget(self.lbl)
+        lay.addWidget(self.scr)
 
-        self._load_pixmap()
+        self._load()
 
-    # ---------- Navegación ----------
-    def show_prev(self):
-        self.index = (self.index - 1) % len(self.image_paths)
-        self._load_pixmap()
+    # ---------------- helpers ----------------
+    def _step(self, d: int):
+        self.idx = (self.idx + d) % len(self.paths)
+        self._load()
 
-    def show_next(self):
-        self.index = (self.index + 1) % len(self.image_paths)
-        self._load_pixmap()
+    def resizeEvent(self, e):                                                  # noqa
+        super().resizeEvent(e)
+        self._scale()
 
-    # ---------- Redimensionado ----------
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._update_pixmap()
+    def _load(self):
+        self._pix = QPixmap(self.paths[self.idx])
+        self._scale()
 
-    # ---------- Helpers internos ----------
-    def _load_pixmap(self):
-        pix = QPixmap(self.image_paths[self.index])
-        self._original = pix
-        self._update_pixmap()
-
-    def _update_pixmap(self):
-        if hasattr(self, "_original") and not self._original.isNull():
-            area = self.scroll.viewport().size()
-            scaled = self._original.scaled(
-                area,
-                Qt.AspectRatioMode.KeepAspectRatio,
+    def _scale(self):
+        if self._pix.isNull():
+            return
+        s = self.scr.viewport().size()
+        self.lbl.setPixmap(
+            self._pix.scaled(
+                s, Qt.AspectRatioMode.KeepAspectRatio,
                 Qt.TransformationMode.SmoothTransformation
             )
-            self.label.setPixmap(scaled)
+        )
 
 
-# --------------------------------------------------------------------------- #
-#                                   Pestaña                                   #
-# --------------------------------------------------------------------------- #
+# ═══════════════════════════════════ AvanceTab ══════════════════════════════ #
 class AvanceTab(QWidget):
+    COL_ID, COL_NOM, COL_QTY, COL_PU, COL_TOT, COL_INI, COL_FIN, COL_COM, COL_PCT = range(9)
+
     def __init__(self, db: Database, save_callback=None):
         super().__init__()
         self.db = db
+        self._save_cb = save_callback
         self.current_atajado: int | None = None
-        self._save_callback = save_callback
 
         root = QVBoxLayout(self)
 
-        # ---------- Selector de atajado ----------
+        # ────────── Selector ──────────
         sel = QHBoxLayout()
         sel.addWidget(QLabel("Atajado / Beneficiario:"))
-
-        self.at_combo = QComboBox()
-        self._populate_atajado_combo()
-        self.at_combo.setEditable(True)
-        completer = QCompleter(
-            [self.at_combo.itemText(i) for i in range(self.at_combo.count())]
-        )
-        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
-        self.at_combo.setCompleter(completer)
-        sel.addWidget(self.at_combo)
-
-        self.load_btn = QPushButton("Cargar Ítems")
-        self.load_btn.clicked.connect(self.load_items)
-        sel.addWidget(self.load_btn)
+        self.at_combo = QComboBox(editable=True)
+        self.refresh_btn = QPushButton("⟳", clicked=self._populate_selector)
+        sel.addWidget(self.at_combo, 1)
+        sel.addWidget(self.refresh_btn)
         root.addLayout(sel)
 
-        # ---------- Tabla de ítems ----------
+        # ────────── Info beneficiario ──────────
+        self.info_lbl = QLabel()
+        self.info_lbl.setStyleSheet("font-weight:600; color:#d0d0d0;")
+        root.addWidget(self.info_lbl)
+
+        # ────────── Tabla de ítems ──────────
         self.table = QTableWidget()
-        hdr = self.table.horizontalHeader()
-        hdr.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setStretchLastSection(True)
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        header.setStretchLastSection(True)
         root.addWidget(self.table)
 
-        # ---------- Botones de acción ----------
-        actions = QHBoxLayout()
-        self.img_btn = QPushButton("📎 Adjuntar Imágenes")
-        self.img_btn.clicked.connect(self.attach_images)
-        self.save_btn = QPushButton("💾 Guardar Avance")
-        self.save_btn.clicked.connect(self.save_progress)
-        actions.addWidget(self.img_btn)
-        actions.addWidget(self.save_btn)
-        actions.addStretch()
-        root.addLayout(actions)
+        # ────────── Acciones ──────────
+        act = QHBoxLayout()
+        self.img_btn = QPushButton("📎 Adjuntar imágenes", clicked=self.attach_images)
+        self.save_btn = QPushButton("💾 Guardar avance", clicked=self.save_progress)
+        act.addWidget(self.img_btn)
+        act.addWidget(self.save_btn)
+        act.addStretch()
+        root.addLayout(act)
 
-        # ---------- Lista de miniaturas ----------
+        # ────────── Miniaturas ──────────
         self.img_list = QListWidget(viewMode=QListWidget.ViewMode.IconMode)
         self.img_list.setIconSize(QSize(100, 100))
         self.img_list.setResizeMode(QListWidget.ResizeMode.Adjust)
-        self.img_list.itemDoubleClicked.connect(self.preview_image)
+        self.img_list.itemDoubleClicked.connect(self._preview)
+        self.img_list.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.img_list.customContextMenuRequested.connect(self._thumb_menu)
         root.addWidget(self.img_list)
 
-        # Primer estado
-        if self.at_combo.count() == 0:
-            self._disable_controls_initial()
-        else:
+        # Cargar selector
+        self._populate_selector()
+
+    # ===================================================================== #
+    #                              Selector                                 #
+    # ===================================================================== #
+    def _populate_selector(self):
+        self.at_combo.blockSignals(True)
+        opts = [f"{n} – {b}" for n, b in
+                self.db.fetchall("SELECT number, beneficiario FROM atajados ORDER BY number")]
+        self.at_combo.clear()
+        self.at_combo.addItems(opts)
+        self.at_combo.setCompleter(QCompleter(opts, caseSensitivity=Qt.CaseSensitivity.CaseInsensitive))
+        self.at_combo.blockSignals(False)
+
+        if opts:
+            self.at_combo.setCurrentIndex(0)
             self.load_items()
 
-    # =======================================================================
-    #                              Helpers                                   #
-    # =======================================================================
-    def _populate_atajado_combo(self):
-        ats = self.db.fetchall("SELECT number, beneficiario FROM atajados")
-        self.at_combo.addItems([f"{num} – {ben}" for num, ben in ats])
-
-    def _disable_controls_initial(self):
-        """Desactiva controles y muestra indicación cuando no hay atajados."""
-        self.load_btn.setEnabled(False)
-        self.img_btn.setEnabled(False)
-        self.save_btn.setEnabled(False)
-        self.table.setDisabled(True)
-        QMessageBox.information(
-            self,
-            "Sin atajados",
-            "Primero debes crear un atajado en la pestaña 'Atajados' para registrar avances."
-        )
-
-    # =======================================================================
-    #                     Carga y visualización de ítems                     #
-    # =======================================================================
+    # ===================================================================== #
+    #                       Información + Carga tabla                       #
+    # ===================================================================== #
     def load_items(self):
-        text = self.at_combo.currentText().strip()
-        if not text or "–" not in text:
-            QMessageBox.warning(self, "Selección inválida", "Selecciona un atajado válido.")
+        txt = self.at_combo.currentText().strip()
+        if not txt:
+            self._clear_ui()
             return
         try:
-            num = int(text.split("–")[0].strip())
-        except ValueError:
-            QMessageBox.warning(self, "Selección inválida", "Selecciona un atajado válido.")
+            self.current_atajado = int(txt.split("–")[0].strip())
+        except (ValueError, IndexError):
+            self._clear_ui()
             return
 
-        self.current_atajado = num
-
-        # ---------- Datos ----------
-        at_count = self.db.fetchall("SELECT COUNT(*) FROM atajados")[0][0] or 1
+        self._set_info()
         rows = self.db.fetchall(
-            "SELECT id, name, total, incidence FROM items WHERE active=1"
+            "SELECT id, name, total, COALESCE(unit_price, incidence, 0) "
+            "FROM items WHERE active=1"
         )
+        if not rows:
+            self._clear_ui()
+            return
 
-        headers = [
-            "ID", "Nombre", "Cant.", "P.U.", "Total",
-            "Act. Fechas", "Inicio", "Fin",
-            "Comentario", "Avance (%)"
-        ]
+        headers = ["ID", "Nombre", "Cant.", "P.U.", "Total",
+                   "Inicio", "Fin", "Comentario", "Avance (%)"]
+        n_ata = self.db.fetchone("SELECT COUNT(*) FROM atajados")[0] or 1
 
         self.table.blockSignals(True)
-        self.table.clear()
         self.table.setRowCount(len(rows))
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
 
-        for r, (iid, name, total_qty, unit_price) in enumerate(rows):
-            qty = total_qty / at_count
-            cost_total = qty * unit_price
+        for r, (iid, nombre, qty_tot, pu) in enumerate(rows):
+            qty = qty_tot / n_ata
+            total = qty * pu
+            for c, val in enumerate((iid, nombre, f"{qty:.2f}", pu, f"{total:.2f}")):
+                item = QTableWidgetItem(str(val))
+                item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+                self.table.setItem(r, c, item)
 
-            # ID, Nombre, Cantidad, PU, Total
-            self.table.setItem(r, 0, QTableWidgetItem(str(iid)))
-            self.table.setItem(r, 1, QTableWidgetItem(name))
-            self.table.setItem(r, 2, QTableWidgetItem(f"{qty:.2f}"))
-            self.table.setItem(r, 3, QTableWidgetItem(str(unit_price)))
-            self.table.setItem(r, 4, QTableWidgetItem(f"{cost_total:.2f}"))
+            ini = QDateEdit(calendarPopup=True); ini.setDate(QDate.currentDate())
+            fin = QDateEdit(calendarPopup=True); fin.setDate(QDate.currentDate())
+            self.table.setCellWidget(r, self.COL_INI, ini)
+            self.table.setCellWidget(r, self.COL_FIN, fin)
+            self.table.setCellWidget(r, self.COL_COM, QLineEdit())
 
-            # Check fechas
-            chk = QTableWidgetItem()
-            chk.setFlags(chk.flags() | Qt.ItemFlag.ItemIsUserCheckable)
-            chk.setCheckState(Qt.CheckState.Unchecked)
-            self.table.setItem(r, 5, chk)
-
-            # Fechas inicio/fin
-            inicio = QDateEdit(calendarPopup=True, enabled=False)
-            fin = QDateEdit(calendarPopup=True, enabled=False)
-            self.table.setCellWidget(r, 6, inicio)
-            self.table.setCellWidget(r, 7, fin)
-
-            # Comentario
-            self.table.setCellWidget(r, 8, QLineEdit())
-
-            # Avance %
-            combo = QComboBox()
-            combo.addItems(["0%", "25%", "50%", "75%", "100%"])
-            self.table.setCellWidget(r, 9, combo)
+            pct = QComboBox(); pct.addItems([f"{p}%" for p in (0, 25, 50, 75, 100)])
+            self.table.setCellWidget(r, self.COL_PCT, pct)
 
             # Cargar avance previo
-            rec = self.db.fetchall(
-                "SELECT quantity, start_date, end_date FROM avances "
-                "WHERE atajado_id=? AND item_id=?",
-                (num, iid)
+            old = self.db.fetchone(
+                "SELECT quantity,start_date,end_date,comment "
+                "FROM avances WHERE atajado_id=? AND item_id=?",
+                (self.current_atajado, iid)
             )
-            if rec:
-                pct_saved, sd, ed = rec[0]
-                combo.setCurrentText(f"{int(pct_saved)}%")
-                if sd and ed:
-                    chk.setCheckState(Qt.CheckState.Checked)
-                    inicio.setEnabled(True)
-                    fin.setEnabled(True)
-                    inicio.setDate(QDate.fromString(sd, "yyyy-MM-dd"))
-                    fin.setDate(QDate.fromString(ed, "yyyy-MM-dd"))
+            if old:
+                q, sd, ed, com = old
+                pct.setCurrentText(f"{int(q)}%")
+                if sd: ini.setDate(QDate.fromString(sd, "yyyy-MM-dd"))
+                if ed: fin.setDate(QDate.fromString(ed, "yyyy-MM-dd"))
+                if com: self.table.cellWidget(r, self.COL_COM).setText(com)
 
-        self.table.cellChanged.connect(self.on_cell_changed)
         self.table.blockSignals(False)
+        self.table.resizeRowsToContents()
+        self._reload_thumbs()
+        self.img_btn.setEnabled(True)
+        self.save_btn.setEnabled(True)
 
-        # ---------- Miniaturas ----------
+    def _set_info(self):
+        info = self.db.fetchone(
+            "SELECT comunidad, beneficiario, ci, este, norte "
+            "FROM atajados WHERE number=?", (self.current_atajado,)
+        )
+        if not info:
+            self.info_lbl.clear()
+            return
+        com, ben, ci, e, n = info
+        self.info_lbl.setText(
+            f"Comunidad: <b>{com}</b> – Beneficiario: <b>{ben}</b> – "
+            f"CI: {ci} – Coord: Este {e or '—'}, Norte {n or '—'}"
+        )
+
+    def _clear_ui(self):
+        self.info_lbl.clear()
+        self.table.setRowCount(0)
         self.img_list.clear()
-        img_dir = IMAGES_DIR / str(num)
-        if img_dir.is_dir():
-            for f in sorted(img_dir.iterdir()):
-                if f.is_file():
-                    pix = QPixmap(str(f))
-                    if not pix.isNull():
-                        item = QListWidgetItem()
-                        item.setIcon(QIcon(pix))
-                        item.setData(Qt.ItemDataRole.UserRole, str(f))
-                        self.img_list.addItem(item)
+        self.img_btn.setEnabled(False)
+        self.save_btn.setEnabled(False)
 
-    # =======================================================================
-    #                              Eventos                                   #
-    # =======================================================================
-    def on_cell_changed(self, row: int, col: int):
-        if col == 5:  # check Activar fechas
-            state = self.table.item(row, 5).checkState()
-            enab = state == Qt.CheckState.Checked
-            for c in (6, 7):
-                w = self.table.cellWidget(row, c)
-                if w:
-                    w.setEnabled(enab)
-
-    # =======================================================================
-    #                          Adjuntar imágenes                             #
-    # =======================================================================
+    # ===================================================================== #
+    #                               Imágenes                                #
+    # ===================================================================== #
     def attach_images(self):
         if self.current_atajado is None:
-            QMessageBox.warning(self, "Error", "Carga primero un atajado.")
             return
-
         paths, _ = QFileDialog.getOpenFileNames(
-            self, "Seleccionar imágenes", "", "Images (*.png *.jpg *.jpeg)"
+            self, "Seleccionar imágenes", "", "Imágenes (*.png *.jpg *.jpeg *.bmp)"
         )
         if not paths:
             return
+        dest = IMAGES_DIR / str(self.current_atajado)
+        dest.mkdir(parents=True, exist_ok=True)
+        for src in paths:
+            name = f"{datetime.now().timestamp():.6f}_{Path(src).name}"
+            shutil.copy(src, dest / name)
+        self._reload_thumbs()
 
-        img_dir = IMAGES_DIR / str(self.current_atajado)
-        img_dir.mkdir(parents=True, exist_ok=True)
+    def _reload_thumbs(self):
+        self.img_list.clear()
+        if self.current_atajado is None:
+            return
+        dir_ = IMAGES_DIR / str(self.current_atajado)
+        if not dir_.exists():
+            return
+        for p in sorted(dir_.glob("*.[pj][pn]g")) + sorted(dir_.glob("*.bmp")):
+            icon = QPixmap(str(p)).scaled(
+                100, 100, Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation
+            )
+            it = QListWidgetItem(QIcon(icon), "")
+            it.setData(Qt.ItemDataRole.UserRole, str(p))
+            self.img_list.addItem(it)
 
-        for p in paths:
-            dst = img_dir / f"{datetime.now().timestamp()}_{Path(p).name}"
-            shutil.copy(p, dst)
-            pix = QPixmap(str(dst))
-            if not pix.isNull():
-                item = QListWidgetItem()
-                item.setIcon(QIcon(pix))
-                item.setData(Qt.ItemDataRole.UserRole, str(dst))
-                self.img_list.addItem(item)
+    def _preview(self, item: QListWidgetItem):
+        paths = [self.img_list.item(i).data(Qt.ItemDataRole.UserRole)
+                 for i in range(self.img_list.count())]
+        ImagePreviewDialog(paths, paths.index(item.data(Qt.ItemDataRole.UserRole))).exec()
 
-    # =======================================================================
-    #                               Guardar                                  #
-    # =======================================================================
+    def _thumb_menu(self, pos):
+        item = self.img_list.itemAt(pos)
+        if not item:
+            return
+        m = QMenu(self)
+        act_del = QAction("Eliminar", self)
+        m.addAction(act_del)
+        if m.exec(self.img_list.mapToGlobal(pos)) == act_del:
+            path = Path(item.data(Qt.ItemDataRole.UserRole))
+            try:
+                path.unlink(missing_ok=True)
+                self.img_list.takeItem(self.img_list.row(item))
+            except Exception as e:
+                self._notify(f"No se pudo eliminar {path.name}: {e}", "warning")
+
+    # ===================================================================== #
+    #                                 Guardar                               #
+    # ===================================================================== #
     def save_progress(self):
         if self.current_atajado is None:
-            QMessageBox.warning(self, "Error", "Carga primero un atajado.")
+            self._notify("Selecciona un atajado antes de guardar.", "warning")
             return
 
         today = QDate.currentDate().toString("yyyy-MM-dd")
+        filas_ok, errores = 0, []
 
         for r in range(self.table.rowCount()):
-            iid = int(self.table.item(r, 0).text())
-            pct = int(self.table.cellWidget(r, 9).currentText().replace("%", ""))
+            cell_id = self.table.item(r, self.COL_ID)
+            if cell_id is None:
+                continue  # fila vacía
 
-            chk = self.table.item(r, 5)
-            inicio = self.table.cellWidget(r, 6)
-            fin = self.table.cellWidget(r, 7)
+            try:
+                iid = int(cell_id.text())
+                pct = int(self.table.cellWidget(r, self.COL_PCT).currentText()[:-1])
+                ini = self.table.cellWidget(r, self.COL_INI).date().toString("yyyy-MM-dd")
+                fin = self.table.cellWidget(r, self.COL_FIN).date().toString("yyyy-MM-dd")
+                com = self.table.cellWidget(r, self.COL_COM).text()
 
-            sd = inicio.date().toString("yyyy-MM-dd") if chk.checkState() == Qt.CheckState.Checked else None
-            ed = fin.date().toString("yyyy-MM-dd") if chk.checkState() == Qt.CheckState.Checked else None
-
-            existing = self.db.fetchall(
-                "SELECT id FROM avances WHERE atajado_id=? AND item_id=?",
-                (self.current_atajado, iid)
-            )
-            if existing:
                 self.db.execute(
-                    "UPDATE avances SET quantity=?, date=?, start_date=?, end_date=? "
-                    "WHERE id=?",
-                    (pct, today, sd, ed, existing[0][0])
+                    """
+                    INSERT INTO avances(atajado_id,item_id,date,quantity,start_date,end_date,comment)
+                    VALUES(?,?,?,?,?,?,?)
+                    ON CONFLICT(atajado_id,item_id) DO UPDATE SET
+                        date=excluded.date, quantity=excluded.quantity,
+                        start_date=excluded.start_date, end_date=excluded.end_date,
+                        comment=excluded.comment
+                    """,
+                    (self.current_atajado, iid, today, pct, ini, fin, com)
                 )
-            else:
-                self.db.execute(
-                    "INSERT INTO avances(atajado_id,item_id,date,quantity,start_date,end_date) "
-                    "VALUES(?,?,?,?,?,?)",
-                    (self.current_atajado, iid, today, pct, sd, ed)
-                )
+                filas_ok += 1
 
-        # Actualizar estado del atajado según avance ponderado por costo
-        avg_row = self.db.fetchall(
-            """
-            SELECT SUM(i.total*i.incidence*a.quantity/100.0) / SUM(i.total*i.incidence)
-            FROM avances a
-            JOIN items i ON a.item_id = i.id
-            WHERE a.atajado_id=? AND i.active=1
-            """,
-            (self.current_atajado,)
-        )
-        avg = (avg_row[0][0] or 0) * 100
-        status = "Ejecutado" if avg == 100 else "En ejecución"
+            except Exception as e:
+                errores.append(f"Fila {r+1}: {e}")
 
-        self.db.execute(
-            "UPDATE atajados SET status=? WHERE number=?",
-            (status, self.current_atajado)
-        )
+        if filas_ok == 0:
+            self._notify("No se pudo guardar ningún avance.\n" + "\n".join(errores), "error")
+            return
 
-        QMessageBox.information(self, "Guardado", "Avances registrados correctamente.")
+        self._recalcular_estado()
 
-        if self._save_callback:
-            self._save_callback()
+        if errores:
+            self._notify("Avance guardado con advertencias:\n" + "\n".join(errores), "warning")
         else:
-            wnd = self.window()
-            if hasattr(wnd, "refresh_all"):
-                wnd.refresh_all()
+            self._notify("Avances registrados correctamente.", "info")
 
-    # =======================================================================
-    #                           Vista previa                                 #
-    # =======================================================================
-    def preview_image(self, item: QListWidgetItem):
-        path = item.data(Qt.ItemDataRole.UserRole)
-        paths = [
-            self.img_list.item(i).data(Qt.ItemDataRole.UserRole)
-            for i in range(self.img_list.count())
-        ]
-        dlg = ImagePreviewDialog(paths, paths.index(path))
-        dlg.exec()
+        if self._save_cb:
+            self._save_cb()
+
+    def _recalcular_estado(self):
+        avg = self.db.fetchone(
+            """
+            SELECT COALESCE(SUM(i.total*COALESCE(i.unit_price,i.incidence,0)*a.quantity/100.0) /
+                   SUM(i.total*COALESCE(i.unit_price,i.incidence,0)), 0)
+            FROM avances a JOIN items i ON a.item_id=i.id
+            WHERE a.atajado_id=? AND i.active=1
+            """, (self.current_atajado,)
+        )[0] * 100
+        estado = "Ejecutado" if avg == 100 else "En ejecución"
+        self.db.execute("UPDATE atajados SET status=? WHERE number=?",
+                        (estado, self.current_atajado))
+
+    # ===================================================================== #
+    #                                   Utils                               #
+    # ===================================================================== #
+    def _notify(self, msg: str, kind: str = "info"):
+        {"info": QMessageBox.information,
+         "warning": QMessageBox.warning,
+         "error": QMessageBox.critical}.get(kind, QMessageBox.information)(
+             self, "Seguimiento de Avances", msg)

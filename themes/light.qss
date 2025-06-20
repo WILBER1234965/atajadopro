@@ -1,14 +1,68 @@
+/* themes/light.qss */
 
-    QWidget         { background: #ffffff; color: #202020; font-family: Segoe UI; font-size: 12pt; }
-    QGroupBox       { border: 1px solid #ccc; border-radius: 10px; padding: 10px; }
-    QPushButton     { background: #1976D2; color: #fff; border-radius: 6px; padding: 6px 14px; }
-    QPushButton:hover { background: #1259a4; }
-    QLineEdit       { background: #fafafa; border: 1px solid #aaa; border-radius: 6px; padding: 5px; }
-    QComboBox       { background: #fafafa; border: 1px solid #aaa; border-radius: 6px; padding: 4px; }
-    QTableWidget    { background: #f9f9f9; alternate-background-color: #e8f0fe; border: 1px solid #ccc; }
-    QHeaderView::section { background: #d0e8ff; padding: 4px; font-weight: bold; border: 1px solid #ccc; }
-    QMenuBar        { background: #f0f0f0; }
-    QMenuBar::item  { spacing: 10px; padding: 4px 10px; border-right: 1px solid #ccc; }
-    QMenuBar::item:selected { background: #e0e0e0; }
-    QMenu           { border: 1px solid #ccc; border-radius: 6px; }
-    QMenu::item     { padding: 5px 20px; }
+QWidget {
+    background: #ffffff;
+    color: #202020;
+    font-family: Segoe UI;
+    font-size: 12pt;
+}
+QGroupBox {
+    border: 1px solid #ccc;
+    border-radius: 10px;
+    padding: 10px;
+}
+QPushButton {
+    background: #1976D2;
+    color: #fff;
+    border-radius: 6px;
+    padding: 6px 14px;
+}
+QPushButton:hover {
+    background: #1259a4;
+}
+QLineEdit {
+    background: #fafafa;
+    border: 1px solid #aaa;
+    border-radius: 6px;
+    padding: 5px;
+}
+QComboBox {
+    background: #fafafa;
+    border: 1px solid #aaa;
+    border-radius: 6px;
+    padding: 4px;
+}
+QTableWidget {
+    background: #f9f9f9;
+    alternate-background-color: #e8f0fe;
+    border: 1px solid #ccc;
+}
+QHeaderView::section {
+    background: #d0e8ff;
+    padding: 4px;
+    font-weight: bold;
+    border: 1px solid #ccc;
+}
+QMenuBar {
+    background: #f0f0f0;
+}
+QMenuBar::item {
+    spacing: 10px;
+    padding: 4px 10px;
+    border-right: 1px solid #ccc;
+}
+QMenuBar::item:selected {
+    background: #e0e0e0;
+}
+QMenu {
+    border: 1px solid #ccc;
+    border-radius: 6px;
+}
+QMenu::item {
+    padding: 5px 20px;
+}
+
+/* PyQtGraph widgets */
+PlotWidget, QGraphicsView {
+    background: #ffffff;
+}
