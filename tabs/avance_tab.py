@@ -142,6 +142,7 @@ class AvanceTab(QWidget):
 
         btn_bar = QHBoxLayout()
         self.save_btn = QPushButton(QIcon.fromTheme("document-save"), "Guardar avance")
+        self.save_btn.clicked.connect(self.save_progress)
         btn_bar.addStretch(); btn_bar.addWidget(self.save_btn)
         r_lay.addLayout(btn_bar)
 
