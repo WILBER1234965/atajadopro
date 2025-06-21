@@ -1,10 +1,10 @@
-"""Database layer para la aplicación Atajados.
+"""
+Capa de acceso a datos para la aplicación “Seguimiento de Atajados”.
 
-- Maneja conexión SQLite.
-- Auto-crea tablas si no existen.
-- Ejecuta migraciones incrementales para mantener compatibilidad
-  con versiones anteriores.
-- Provee helpers `fetchone`, `fetchall`, `execute`, `get_project_progress`.
+• Maneja conexión SQLite
+• Crea tablas si no existen
+• Aplica migraciones incrementales para compatibilidad hacia atrás
+• Helpers: fetchone, fetchall, execute, get_project_progress
 """
 
 from __future__ import annotations
@@ -17,8 +17,8 @@ from typing import Any, Iterable
 # ────────────────────────────────────────────────────────────
 # Rutas por defecto
 # ────────────────────────────────────────────────────────────
-DB_FILE   = Path("data") / "atajados.db"
-PHOTO_DIR = Path("photos")
+DB_FILE    = Path("data") / "atajados.db"
+PHOTO_DIR  = Path("photos")
 IMAGES_DIR = Path("data/images")
 
 for d in (PHOTO_DIR, IMAGES_DIR):
@@ -26,17 +26,17 @@ for d in (PHOTO_DIR, IMAGES_DIR):
 
 
 # ────────────────────────────────────────────────────────────
-# Clase envoltorio
+# Envoltorio ligero sobre sqlite3
 # ────────────────────────────────────────────────────────────
 class Database:
-    """Envoltorio liviano sobre *sqlite3* con migraciones implícitas."""
+    """Envoltorio liviano sobre *sqlite3* con migraciones automáticas."""
 
+    # ------------------------------------------------------ init / open / close
     def __init__(self, db_file: str | Path = DB_FILE) -> None:
         self.open(db_file)
 
-    # ─────────────────────────────────────────────── abrir / cerrar
     def open(self, db_file: str | Path) -> None:
-        """Abre (o re-abre) la conexión y garantiza esquema actualizado."""
+        """Abre la conexión y garantiza que el esquema esté actualizado."""
         if getattr(self, "conn", None):
             self.conn.close()
 
@@ -59,7 +59,7 @@ class Database:
             self.conn.close()
             self.conn = None
 
-    # ─────────────────────────────────────────────── helpers SQL
+    # ------------------------------------------------------ helpers SQL
     def fetchone(self, sql: str, params: Iterable[Any] = ()) -> tuple | None:
         with closing(self.conn.cursor()) as cur:
             cur.execute(sql, params)
@@ -75,9 +75,9 @@ class Database:
             cur.execute(sql, params)
             self.conn.commit()
 
-    # ─────────────────────────────────────────────── creación básica
+    # ------------------------------------------------------ creación básica
     def _init_tables(self) -> None:
-        """Crea tablas mínimas si todavía no existen."""
+        """Crea las tablas mínimas si aún no existen."""
         with closing(self.conn.cursor()) as c:
             # Ítems
             c.execute(
@@ -88,12 +88,13 @@ class Database:
                     name        TEXT,
                     unit        TEXT,
                     total       REAL,
-                    unit_price  REAL DEFAULT 0,
-                    incidence   REAL DEFAULT 0,     -- retro-compatibilidad
+                    unit_price  REAL DEFAULT 0,     -- alias futuro
+                    incidence   REAL DEFAULT 0,     -- PU actual
+                    aplica      TEXT DEFAULT 'No',  -- 'Sí' o 'No'
                     active      INTEGER DEFAULT 0,
                     progress    REAL DEFAULT 0
                 )
-            """
+                """
             )
 
             # Atajados
@@ -112,10 +113,11 @@ class Database:
                     start_date   TEXT,
                     end_date     TEXT,
                     status       TEXT,
+                    porcentaje   REAL,
                     observations TEXT,
                     photo        TEXT
                 )
-            """
+                """
             )
 
             # Avances
@@ -126,13 +128,15 @@ class Database:
                     atajado_id   INTEGER,
                     item_id      INTEGER,
                     date         TEXT,
-                    quantity     REAL,              -- % (0-100)
+                    quantity     REAL,      -- % (0-100)
                     start_date   TEXT,
                     end_date     TEXT,
+                    comment      TEXT,
                     FOREIGN KEY(atajado_id) REFERENCES atajados(id) ON DELETE CASCADE,
-                    FOREIGN KEY(item_id)    REFERENCES items(id)    ON DELETE CASCADE
+                    FOREIGN KEY(item_id)    REFERENCES items(id)    ON DELETE CASCADE,
+                    UNIQUE(atajado_id, item_id)
                 )
-            """
+                """
             )
 
             # Cronograma
@@ -144,12 +148,12 @@ class Database:
                     date TEXT NOT NULL,
                     obs  TEXT
                 )
-            """
+                """
             )
 
             self.conn.commit()
 
-    # ─────────────────────────────────────────────── migraciones
+    # ------------------------------------------------------ migraciones
     def _column_exists(self, table: str, column: str) -> bool:
         cur = self.conn.execute(f"PRAGMA table_info({table})")
         return any(col[1] == column for col in cur.fetchall())
@@ -157,17 +161,21 @@ class Database:
     def _migrations(self) -> None:
         """Aplica migraciones incrementales para alinear la BD con el código."""
         with closing(self.conn.cursor()) as c:
-            # items.code
+            # items.code (retrocompatibilidad)
             if not self._column_exists("items", "code"):
                 c.execute("ALTER TABLE items ADD COLUMN code TEXT DEFAULT ''")
 
-            # items.unit_price (nuevo) – copiar desde incidence si existe
+            # items.unit_price (nuevo) – copiar desde incidence
             if not self._column_exists("items", "unit_price"):
                 c.execute("ALTER TABLE items ADD COLUMN unit_price REAL DEFAULT 0")
                 if self._column_exists("items", "incidence"):
                     c.execute("UPDATE items SET unit_price = incidence")
 
-            # atajados.este y norte
+            # items.aplica
+            if not self._column_exists("items", "aplica"):
+                c.execute("ALTER TABLE items ADD COLUMN aplica TEXT DEFAULT 'No'")
+
+            # atajados.este / norte (alias)
             if not self._column_exists("atajados", "este"):
                 c.execute("ALTER TABLE atajados ADD COLUMN este REAL")
                 c.execute("UPDATE atajados SET este = coord_e")
@@ -175,9 +183,13 @@ class Database:
                 c.execute("ALTER TABLE atajados ADD COLUMN norte REAL")
                 c.execute("UPDATE atajados SET norte = coord_n")
 
+            # atajados.porcentaje (avance global)
+            if not self._column_exists("atajados", "porcentaje"):
+                c.execute("ALTER TABLE atajados ADD COLUMN porcentaje REAL DEFAULT 0")
+
         self.conn.commit()
 
-    # ─────────────────────────────────────────────── lógica agregada
+    # ------------------------------------------------------ lógica agregada
     def get_project_progress(self) -> float:
         """Devuelve el avance ponderado global (0-100 %)."""
         rows = self.fetchall(

@@ -1,22 +1,33 @@
 # atajados_tab.py
-import os
+from __future__ import annotations
 import pandas as pd
+from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QPushButton,
     QDialog, QFormLayout, QLineEdit, QTableWidgetItem, QFileDialog,
-    QMessageBox, QAbstractItemView, QHeaderView
+    QMessageBox, QAbstractItemView, QHeaderView, QLabel
 )
-from PyQt6.QtCore import Qt
 from database import Database
 
+
 class AtajadosTab(QWidget):
+    # ------------------------------------------------------------------ #
     def __init__(self, db: Database):
         super().__init__()
         self.db = db
         self.layout = QVBoxLayout(self)
         self._dirty = False
+        self._loading = False
 
-        # Toolbar con Importar, Añadir, Guardar y Eliminar
+        # ───── NUEVO: etiqueta contador ─────
+        self.count_lbl = QLabel()
+        self.count_lbl.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        self.count_lbl.setStyleSheet("font-weight:bold;")
+        self.layout.addWidget(self.count_lbl)
+
+        # Toolbar
         toolbar = QHBoxLayout()
         self.import_btn = QPushButton("📥 Importar Atajados")
         self.add_btn    = QPushButton("➕ Registrar Atajado")
@@ -24,11 +35,10 @@ class AtajadosTab(QWidget):
         self.save_btn   = QPushButton("💾 Guardar Cambios")
         for w in (self.import_btn, self.add_btn, self.save_btn, self.del_btn):
             toolbar.addWidget(w)
-
         toolbar.addStretch()
         self.layout.addLayout(toolbar)
 
-        # Tabla de atajados
+        # Tabla
         self.table = QTableWidget()
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
@@ -44,11 +54,11 @@ class AtajadosTab(QWidget):
         self.del_btn.clicked.connect(self.delete_atajado)
         self.table.cellChanged.connect(self.on_cell_changed)
 
-        self._loading = False
         self.refresh()
 
+    # ------------------------------------------------------------------ #
     def refresh(self):
-        """Carga todos los atajados (sin fechas ni estado)."""
+        """Carga todos los atajados y actualiza el contador."""
         self._loading = True
         rows = self.db.fetchall(
             "SELECT id, comunidad, number, beneficiario, ci, coord_e, coord_n FROM atajados"
@@ -56,20 +66,24 @@ class AtajadosTab(QWidget):
         self.table.clearContents()
         self.table.setRowCount(len(rows))
         self.table.setColumnCount(7)
-        self.table.setHorizontalHeaderLabels([
-            "ID", "Comunidad", "Atajado", "Nombre", "CI", "Este", "Norte"
-        ])
+        self.table.setHorizontalHeaderLabels(
+            ["ID", "Comunidad", "Atajado", "Nombre", "CI", "Este", "Norte"]
+        )
+
         for r, (iid, com, num, ben, ci, e, n) in enumerate(rows):
-            vals = [iid, com, num, ben, ci, e, n]
-            for c, val in enumerate(vals):
+            for c, val in enumerate((iid, com, num, ben, ci, e, n)):
                 item = QTableWidgetItem(str(val))
-                # ID no editable
-                if c == 0:
+                if c == 0:                                   # ID no editable
                     item.setFlags(item.flags() ^ Qt.ItemFlag.ItemIsEditable)
                 self.table.setItem(r, c, item)
-        self._loading = False
-        self._dirty = False
 
+        self._loading = False
+        self._dirty   = False
+
+        # ───── actualiza etiqueta contador ─────
+        self.count_lbl.setText(f"<b>Total atajados: {len(rows)}</b>")
+
+    # ------------------------------------------------------------------ #
     def import_atajados(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "Importar Atajados", "", "Excel (*.xlsx);;CSV (*.csv)"
@@ -77,62 +91,68 @@ class AtajadosTab(QWidget):
         if not path:
             return
         try:
-            df = pd.read_excel(path) if path.lower().endswith(("xls", "xlsx")) else pd.read_csv(path)
-            # Columnas: 'COMUNIDAD','ATAJADO','NOMBRE','CI','ESTE','NORTE'
+            df = (
+                pd.read_excel(path)
+                if path.lower().endswith(("xls", "xlsx"))
+                else pd.read_csv(path)
+            )
+            # Columnas requeridas: 'COMUNIDAD','ATAJADO','NOMBRE','CI','ESTE','NORTE'
             for _, row in df.iterrows():
-                com = str(row.get("COMUNIDAD","")).strip()
-                num = str(row.get("ATAJADO","")).replace("Atajado #","").strip()
-                ben = str(row.get("NOMBRE","")).strip()
-                ci  = str(row.get("CI","")).strip()
-                e   = float(row.get("ESTE",0))
-                n   = float(row.get("NORTE",0))
+                com = str(row.get("COMUNIDAD", "")).strip()
+                num = str(row.get("ATAJADO", "")).replace("Atajado #", "").strip()
+                ben = str(row.get("NOMBRE", "")).strip()
+                ci  = str(row.get("CI", "")).strip()
+                e   = float(row.get("ESTE", 0))
+                n   = float(row.get("NORTE", 0))
+
                 self.db.execute(
-                    "INSERT INTO atajados(comunidad, number, beneficiario, ci, coord_e, coord_n) VALUES(?,?,?,?,?,?)",
+                    "INSERT INTO atajados(comunidad, number, beneficiario, ci, coord_e, coord_n) "
+                    "VALUES(?,?,?,?,?,?)",
                     (com, int(num), ben, ci, e, n)
                 )
-            self.refresh()
             self._dirty = True
+            self.refresh()
             QMessageBox.information(self, "Importación", "Atajados importados correctamente.")
         except Exception as ex:
             QMessageBox.critical(self, "Error de importación", f"No se pudo importar:\n{ex}")
 
+    # ------------------------------------------------------------------ #
     def open_add(self):
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Registrar Atajado")
+        dlg = QDialog(self, windowTitle="Registrar Atajado")
         form = QFormLayout(dlg)
-        com = QLineEdit()
-        num = QLineEdit()
-        ben = QLineEdit()
-        ci  = QLineEdit()
-        e   = QLineEdit()
-        n   = QLineEdit()
+        com = QLineEdit(); num = QLineEdit(); ben = QLineEdit()
+        ci  = QLineEdit(); e   = QLineEdit(); n   = QLineEdit()
         save = QPushButton("Guardar")
-        form.addRow("Comunidad:", com)
-        form.addRow("Atajado #:", num)
-        form.addRow("Nombre:", ben)
-        form.addRow("CI:", ci)
-        form.addRow("Este:", e)
-        form.addRow("Norte:", n)
+        for lbl, w in (
+            ("Comunidad:", com), ("Atajado #:", num), ("Nombre:", ben),
+            ("CI:", ci), ("Este:", e), ("Norte:", n)
+        ):
+            form.addRow(lbl, w)
         form.addRow(save)
 
         def on_save():
             try:
                 if not com.text() or not ben.text():
-                    raise ValueError               
+                    raise ValueError
                 self.db.execute(
-                    "INSERT INTO atajados(comunidad, number, beneficiario, ci, coord_e, coord_n) VALUES(?,?,?,?,?,?)",
+                    "INSERT INTO atajados(comunidad, number, beneficiario, ci, coord_e, coord_n) "
+                    "VALUES(?,?,?,?,?,?)",
                     (com.text(), int(num.text()), ben.text(), ci.text(),
                      float(e.text()), float(n.text()))
                 )
                 dlg.accept()
+                self._dirty = True
                 self.refresh()
-                self._dirty = True                
             except ValueError:
-                QMessageBox.warning(dlg, "Error", "Asegúrate de que todos los campos sean válidos y numéricos donde corresponda.")
+                QMessageBox.warning(
+                    dlg, "Error",
+                    "Asegúrate de que todos los campos sean válidos y numéricos donde corresponda."
+                )
 
         save.clicked.connect(on_save)
         dlg.exec()
 
+    # ------------------------------------------------------------------ #
     def delete_atajado(self):
         sel = self.table.selectionModel().selectedRows()
         if not sel:
@@ -145,25 +165,21 @@ class AtajadosTab(QWidget):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
         ) == QMessageBox.StandardButton.Yes:
             self.db.execute("DELETE FROM atajados WHERE id=?", (iid,))
+            self._dirty = True
             self.refresh()
-            self._dirty = True            
 
+    # ------------------------------------------------------------------ #
     def on_cell_changed(self, row, col):
         if self._loading:
             return
-        # Mapear columnas editables a campos
         field_map = {
-            1: "comunidad",
-            2: "number",
-            3: "beneficiario",
-            4: "ci",
-            5: "coord_e",
-            6: "coord_n"
+            1: "comunidad", 2: "number", 3: "beneficiario",
+            4: "ci",        5: "coord_e", 6: "coord_n"
         }
         if col not in field_map:
             return
-        iid = int(self.table.item(row, 0).text())
-        val = self.table.item(row, col).text()
+        iid  = int(self.table.item(row, 0).text())
+        val  = self.table.item(row, col).text()
         field = field_map[col]
         try:
             if field in ("number", "coord_e", "coord_n"):
@@ -173,7 +189,7 @@ class AtajadosTab(QWidget):
         except ValueError:
             QMessageBox.warning(self, "Error", "Valor inválido.")
 
-    # ------------------------------------------------------------------
+    # ------------------------------------------------------------------ #
     def save_changes(self):
         if not self._dirty:
             QMessageBox.information(self, "Guardar", "No hay cambios pendientes.")
@@ -181,7 +197,7 @@ class AtajadosTab(QWidget):
         self._dirty = False
         QMessageBox.information(self, "Guardar", "Cambios de atajados guardados.")
 
-    # ------------------------------------------------------------------
+    # ------------------------------------------------------------------ #
     def can_close(self) -> bool:
         if not self._dirty:
             return True

@@ -15,8 +15,11 @@ from database import Database
 
 
 class ItemsTab(QWidget):
-    COL_ID, COL_CODE, COL_ACTIVO, COL_NAME, COL_UNIT, COL_QTY, COL_PU, COL_TOTAL, COL_PROGRESS, COL_ACTIONS = range(10)
+    # Índices de columna
+    COL_ID, COL_CODE, COL_ACTIVO, COL_NAME, COL_UNIT, \
+    COL_QTY, COL_PU, COL_TOTAL, COL_PROGRESS, COL_ACTIONS = range(10)
 
+    # ------------------------------------------------------------------ #
     def __init__(self, db: Database):
         super().__init__()
         self.db = db
@@ -25,6 +28,7 @@ class ItemsTab(QWidget):
         self._build_ui()
         self.refresh()
 
+    # ------------------------------------------------------------------ #
     def _build_ui(self) -> None:
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
@@ -37,16 +41,17 @@ class ItemsTab(QWidget):
 
         toolbar = QHBoxLayout()
         self.import_btn = QPushButton("📥 Importar")
-        self.add_btn = QPushButton("➕ Añadir")
-        self.del_btn = QPushButton("🗑 Eliminar")
-        self.save_btn = QPushButton("💾 Guardar")
-        self.search = QLineEdit(placeholderText="Filtrar…")
+        self.add_btn    = QPushButton("➕ Añadir")
+        self.del_btn    = QPushButton("🗑 Eliminar")
+        self.save_btn   = QPushButton("💾 Guardar")
+        self.search     = QLineEdit(placeholderText="Filtrar…")
         for w in (self.import_btn, self.add_btn, self.del_btn, self.save_btn, self.search):
             toolbar.addWidget(w)
         toolbar.addStretch()
         head.addLayout(toolbar)
         root.addWidget(grp)
 
+        # Tabla
         self.table = QTableWidget(selectionBehavior=QAbstractItemView.SelectionBehavior.SelectRows)
         hdr = self.table.horizontalHeader()
         hdr.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
@@ -54,6 +59,13 @@ class ItemsTab(QWidget):
         self.table.setAlternatingRowColors(True)
         root.addWidget(self.table)
 
+        # NUEVO: etiqueta con la suma total
+        self.total_lbl = QLabel()
+        self.total_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.total_lbl.setStyleSheet("font-weight:bold;")
+        root.addWidget(self.total_lbl)
+
+        # Conexiones
         self.import_btn.clicked.connect(self._import_items)
         self.add_btn.clicked.connect(self._open_add)
         self.del_btn.clicked.connect(self._delete_selected)
@@ -61,41 +73,54 @@ class ItemsTab(QWidget):
         self.table.cellChanged.connect(self._on_cell_edited)
         self.search.textChanged.connect(self._filter_rows)
 
+    # ------------------------------------------------------------------ #
     def refresh(self) -> None:
         self._loading = True
-        rows = self.db.fetchall("SELECT id, code, name, unit, total, incidence, active, progress FROM items")
+        rows = self.db.fetchall(
+            "SELECT id, code, name, unit, total, incidence, active, progress FROM items"
+        )
         self.table.setRowCount(len(rows))
         self.table.setColumnCount(10)
         self.table.setHorizontalHeaderLabels([
-            "ID", "Código", "Activo", "Nombre", "Unidad", "Cant.", "P.U.", "Total", "Avance (%)", "Acciones"
+            "ID", "Código", "Activo", "Nombre", "Unidad",
+            "Cant.", "P.U.", "Total", "Avance (%)", "Acciones"
         ])
+
         for r, (iid, code, name, unit, qty, pu, active, progress) in enumerate(rows):
+            # ID
             itm_id = QTableWidgetItem(str(iid))
             itm_id.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
             self.table.setItem(r, self.COL_ID, itm_id)
 
+            # Código
             self._add_editable(r, self.COL_CODE, code)
 
-            combo_act = QComboBox()
-            combo_act.addItems(["No", "Sí"])
+            # Activo
+            combo_act = QComboBox(); combo_act.addItems(["No", "Sí"])
             combo_act.setCurrentIndex(1 if active else 0)
-
-            def _toggle_active(idx: int, iid=iid):
-                self.db.execute("UPDATE items SET active=? WHERE id=?", (1 if idx == 1 else 0, iid))
-                self._dirty = True
-
-            combo_act.currentIndexChanged.connect(_toggle_active)
+            combo_act.currentIndexChanged.connect(
+                lambda idx, iid=iid: self._toggle_active(idx, iid))
             self.table.setCellWidget(r, self.COL_ACTIVO, combo_act)
 
-            for col, val in ((self.COL_NAME, name), (self.COL_UNIT, unit), (self.COL_QTY, qty), (self.COL_PU, pu)):
+            # Nombre, Unidad, Cant., P.U.
+            for col, val in (
+                (self.COL_NAME, name),
+                (self.COL_UNIT, unit),
+                (self.COL_QTY,  qty),
+                (self.COL_PU,   pu)
+            ):
                 self._add_editable(r, col, val)
 
-            tot = QTableWidgetItem(str(qty * pu))
-            tot.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
-            self.table.setItem(r, self.COL_TOTAL, tot)
+            # Total
+            tot_item = QTableWidgetItem(str(qty * pu))
+            tot_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
+            self.table.setItem(r, self.COL_TOTAL, tot_item)
 
+            # Avance / progreso
             if active:
-                avg = self.db.fetchone("SELECT AVG(quantity) FROM avances WHERE item_id=?", (iid,))[0] or 0
+                avg = self.db.fetchone(
+                    "SELECT AVG(quantity) FROM avances WHERE item_id=?", (iid,)
+                )[0] or 0
                 pct_item = QTableWidgetItem(f"{avg:.0f}")
                 pct_item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
                 self.table.setItem(r, self.COL_PROGRESS, pct_item)
@@ -103,14 +128,11 @@ class ItemsTab(QWidget):
                 combo_pct = QComboBox()
                 combo_pct.addItems(["0%", "25%", "50%", "75%", "100%"])
                 combo_pct.setCurrentText(f"{int(progress)}%")
-
-                def _update_pct(txt: str, iid=iid):
-                    self.db.execute("UPDATE items SET progress=? WHERE id=?", (float(txt.rstrip('%')), iid))
-                    self._dirty = True
-
-                combo_pct.currentTextChanged.connect(_update_pct)
+                combo_pct.currentTextChanged.connect(
+                    lambda txt, iid=iid: self._update_pct(txt, iid))
                 self.table.setCellWidget(r, self.COL_PROGRESS, combo_pct)
 
+            # Acciones (editar / eliminar)
             action_wgt = QWidget()
             alay = QHBoxLayout(action_wgt)
             btn_e = QPushButton("✏️", clicked=partial(self._edit_item, iid))
@@ -122,24 +144,44 @@ class ItemsTab(QWidget):
 
         self._loading = False
         self._dirty = False
+        self._actualizar_total()  # ← Actualiza la suma al cargar
 
+    # ------------------------------------------------------------------ #
+    # Helpers de edición
+    # ------------------------------------------------------------------ #
     def _add_editable(self, row: int, col: int, value: Any):
         item = QTableWidgetItem(str(value))
-        item.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsEditable)
+        item.setFlags(
+            Qt.ItemFlag.ItemIsSelectable |
+            Qt.ItemFlag.ItemIsEnabled   |
+            Qt.ItemFlag.ItemIsEditable
+        )
         self.table.setItem(row, col, item)
 
+    def _toggle_active(self, idx: int, iid: int):
+        self.db.execute("UPDATE items SET active=? WHERE id=?", (1 if idx else 0, iid))
+        self._dirty = True
+
+    def _update_pct(self, txt: str, iid: int):
+        self.db.execute(
+            "UPDATE items SET progress=? WHERE id=?", (float(txt.rstrip('%')), iid)
+        )
+        self._dirty = True
+
+    # ------------------------------------------------------------------ #
     def _on_cell_edited(self, row: int, col: int) -> None:
         if self._loading:
             return
-        if col not in (self.COL_CODE, self.COL_NAME, self.COL_UNIT, self.COL_QTY, self.COL_PU):
+        if col not in (self.COL_CODE, self.COL_NAME, self.COL_UNIT,
+                       self.COL_QTY, self.COL_PU):
             return
 
-        iid = int(self.table.item(row, self.COL_ID).text())
+        iid     = int(self.table.item(row, self.COL_ID).text())
         val_txt = self.table.item(row, col).text()
-        campo = {
+        campo   = {
             self.COL_CODE: "code", self.COL_NAME: "name",
             self.COL_UNIT: "unit", self.COL_QTY: "total",
-            self.COL_PU: "incidence"
+            self.COL_PU:   "incidence"
         }[col]
 
         try:
@@ -151,12 +193,20 @@ class ItemsTab(QWidget):
             self.refresh()
             return
 
+        # Recalcular total y la suma general
         if col in (self.COL_QTY, self.COL_PU):
-            qty, pu = self.db.fetchone("SELECT total, incidence FROM items WHERE id=?", (iid,))
+            qty, pu = self.db.fetchone(
+                "SELECT total, incidence FROM items WHERE id=?", (iid,))
             self.table.item(row, self.COL_TOTAL).setText(str(qty * pu))
+            self._actualizar_total()
 
+    # ------------------------------------------------------------------ #
+    # Importar, añadir, editar, eliminar (sin cambios en lógica principal)
+    # ------------------------------------------------------------------ #
     def _import_items(self) -> None:
-        path, _ = QFileDialog.getOpenFileName(self, "Importar Ítems", "", "Excel (*.xlsx);;CSV (*.csv)")
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Importar Ítems", "", "Excel (*.xlsx);;CSV (*.csv)"
+        )
         if not path:
             return
         try:
@@ -165,10 +215,11 @@ class ItemsTab(QWidget):
                 code = str(row.get("Numero", ""))[:20]
                 name = row.get("Descripcion", "")
                 unit = row.get("Unidad", "")
-                qty = float(row.get("Cantidad", 0))
-                pu = float(row.get("PrecioUnitario", 0))
+                qty  = float(row.get("Cantidad", 0))
+                pu   = float(row.get("PrecioUnitario", 0))
                 self.db.execute(
-                    "INSERT INTO items(code,name,unit,total,incidence,active) VALUES(?,?,?,?,?,0)",
+                    "INSERT INTO items(code,name,unit,total,incidence,active) "
+                    "VALUES(?,?,?,?,?,0)",
                     (code, name, unit, qty, pu)
                 )
             self._dirty = True
@@ -178,23 +229,27 @@ class ItemsTab(QWidget):
             QMessageBox.critical(self, "Error", f"No se pudo importar:\n{e}")
 
     def _open_add(self) -> None:
-        dlg = QDialog(self, windowTitle="Añadir Ítem")
+        dlg  = QDialog(self, windowTitle="Añadir Ítem")
         form = QFormLayout(dlg)
         code_e = QLineEdit()
-        name = QLineEdit()
-        unit = QLineEdit()
-        qty = QLineEdit()
-        pu = QLineEdit()
-        btn = QPushButton("Guardar")
-        for lbl, w in (("Código:", code_e), ("Nombre:", name), ("Unidad:", unit), ("Cantidad:", qty), ("P. Unitario:", pu)):
+        name_e = QLineEdit()
+        unit_e = QLineEdit()
+        qty_e  = QLineEdit()
+        pu_e   = QLineEdit()
+        for lbl, w in (("Código:", code_e), ("Nombre:", name_e),
+                       ("Unidad:", unit_e), ("Cantidad:", qty_e),
+                       ("P. Unitario:", pu_e)):
             form.addRow(lbl, w)
+        btn = QPushButton("Guardar")
         form.addRow(btn)
 
         def save():
             try:
                 self.db.execute(
-                    "INSERT INTO items(code,name,unit,total,incidence,active) VALUES(?,?,?,?,?,0)",
-                    (code_e.text(), name.text(), unit.text(), float(qty.text()), float(pu.text()))
+                    "INSERT INTO items(code,name,unit,total,incidence,active) "
+                    "VALUES(?,?,?,?,?,0)",
+                    (code_e.text(), name_e.text(), unit_e.text(),
+                     float(qty_e.text()), float(pu_e.text()))
                 )
                 dlg.accept()
                 self.refresh()
@@ -205,24 +260,29 @@ class ItemsTab(QWidget):
         dlg.exec()
 
     def _edit_item(self, iid: int) -> None:
-        data = self.db.fetchall("SELECT code,name,unit,total,incidence FROM items WHERE id=?", (iid,))[0]
-        dlg = QDialog(self, windowTitle=f"Editar Ítem {iid}")
+        code, name, unit, qty, pu = self.db.fetchone(
+            "SELECT code,name,unit,total,incidence FROM items WHERE id=?", (iid,)
+        )
+        dlg  = QDialog(self, windowTitle=f"Editar Ítem {iid}")
         form = QFormLayout(dlg)
-        code_e = QLineEdit(data[0])
-        name_e = QLineEdit(data[1])
-        unit_e = QLineEdit(data[2])
-        qty_e = QLineEdit(str(data[3]))
-        pu_e = QLineEdit(str(data[4]))
-        btn = QPushButton("Actualizar")
-        for lbl, w in (("Código:", code_e), ("Nombre:", name_e), ("Unidad:", unit_e), ("Cantidad:", qty_e), ("P. Unitario:", pu_e)):
+        code_e = QLineEdit(code)
+        name_e = QLineEdit(name)
+        unit_e = QLineEdit(unit)
+        qty_e  = QLineEdit(str(qty))
+        pu_e   = QLineEdit(str(pu))
+        for lbl, w in (("Código:", code_e), ("Nombre:", name_e),
+                       ("Unidad:", unit_e), ("Cantidad:", qty_e),
+                       ("P. Unitario:", pu_e)):
             form.addRow(lbl, w)
+        btn = QPushButton("Actualizar")
         form.addRow(btn)
 
         def update():
             try:
                 self.db.execute(
                     "UPDATE items SET code=?,name=?,unit=?,total=?,incidence=? WHERE id=?",
-                    (code_e.text(), name_e.text(), unit_e.text(), float(qty_e.text()), float(pu_e.text()), iid)
+                    (code_e.text(), name_e.text(), unit_e.text(),
+                     float(qty_e.text()), float(pu_e.text()), iid)
                 )
                 dlg.accept()
                 self.refresh()
@@ -233,13 +293,10 @@ class ItemsTab(QWidget):
         dlg.exec()
 
     def _delete_item_by_id(self, iid: int) -> None:
-        reply = QMessageBox.question(
-            self,
-            "Confirmar",
-            f"¿Eliminar ítem {iid}?",
+        if QMessageBox.question(
+            self, "Confirmar", f"¿Eliminar ítem {iid}?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        if reply == QMessageBox.StandardButton.Yes:
+        ) == QMessageBox.StandardButton.Yes:
             self.db.execute("DELETE FROM items WHERE id=?", (iid,))
             self.refresh()
 
@@ -249,17 +306,18 @@ class ItemsTab(QWidget):
             QMessageBox.information(self, "Eliminar", "Selecciona al menos una fila.")
             return
         ids = [int(self.table.item(s.row(), self.COL_ID).text()) for s in sel]
-        reply = QMessageBox.question(
-            self,
-            "Confirmar",
+        if QMessageBox.question(
+            self, "Confirmar",
             f"¿Eliminar ítems {', '.join(map(str, ids))}?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-        )
-        if reply == QMessageBox.StandardButton.Yes:
+        ) == QMessageBox.StandardButton.Yes:
             for iid in ids:
                 self.db.execute("DELETE FROM items WHERE id=?", (iid,))
             self.refresh()
 
+    # ------------------------------------------------------------------ #
+    # Filtro y total
+    # ------------------------------------------------------------------ #
     def _filter_rows(self, text: str) -> None:
         t = text.lower()
         for r in range(self.table.rowCount()):
@@ -269,6 +327,18 @@ class ItemsTab(QWidget):
             )
             self.table.setRowHidden(r, not match)
 
+    def _actualizar_total(self):
+        total = 0.0
+        for r in range(self.table.rowCount()):
+            try:
+                total += float(self.table.item(r, self.COL_TOTAL).text())
+            except Exception:
+                pass
+        self.total_lbl.setText(f"<b>Precio total: Bs {total:,.2f}</b>")
+
+    # ------------------------------------------------------------------ #
+    # Guardar y cierre
+    # ------------------------------------------------------------------ #
     def save_changes(self):
         if not self._dirty:
             QMessageBox.information(self, "Guardar", "No hay cambios pendientes.")
