@@ -31,3 +31,4 @@ pytest_cache/
 # Misc
 .DS_Store
 Thumbs.db
+tabs/__pycache__/
