@@ -84,7 +84,7 @@ class Database:
                 """
                 CREATE TABLE IF NOT EXISTS items(
                     id          INTEGER PRIMARY KEY,
-                    code        TEXT DEFAULT '',
+                    code        TEXT UNIQUE NOT NULL,
                     name        TEXT,
                     unit        TEXT,
                     total       REAL,
@@ -150,6 +150,10 @@ class Database:
                 """
             )
 
+            c.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_items_code "
+                "ON items(code)"
+            )
             self.conn.commit()
 
     # ------------------------------------------------------ migraciones
@@ -183,6 +187,11 @@ class Database:
             if not self._column_exists("atajados", "porcentaje"):
                 c.execute("ALTER TABLE atajados ADD COLUMN porcentaje REAL DEFAULT 0")
 
+            # Asegurar índice único sobre code si la BD es antigua
+            c.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_items_code "
+                "ON items(code)"
+            )
         self.conn.commit()
 
     # ------------------------------------------------------ lógica agregada

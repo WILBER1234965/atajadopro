@@ -12,7 +12,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QSize, QDate
+from PyQt6.QtCore import Qt, QSize, QDate, pyqtSignal
 from PyQt6.QtGui import QPixmap, QIcon, QAction, QRegularExpressionValidator
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QLabel, QComboBox, QCompleter,
@@ -68,6 +68,8 @@ class ImagePreviewDialog(QDialog):
 
 # ═══════════════════════════════════ AvanceTab ═════════════════════════════
 class AvanceTab(QWidget):
+        # Señal: se dispara tras guardar avances
+    progressSaved = pyqtSignal(int)   
     COL_ID, COL_NOM, COL_QTY, COL_PU, COL_TOT, COL_INI, COL_FIN, COL_COM, COL_PCT = range(9)
 
     # ------------------------------------------------------------------ #
@@ -175,10 +177,18 @@ class AvanceTab(QWidget):
             return
         self.current_atajado = int(m.group(1))
 
-        # Info encabezado
+        # Info encabezado  ──► usa COALESCE para cubrir registros antiguos
         info = self.db.fetchone(
-            "SELECT comunidad, beneficiario, ci, este, norte "
-            "FROM atajados WHERE number=?", (self.current_atajado,)
+            """
+            SELECT  comunidad,
+                    beneficiario,
+                    ci,
+                    COALESCE(este , coord_e)  AS este_mostrado,
+                    COALESCE(norte, coord_n)  AS norte_mostrado
+            FROM atajados
+            WHERE number = ?
+            """,
+            (self.current_atajado,)
         )
         if info:
             com, ben, ci, este, norte = info
@@ -326,6 +336,7 @@ class AvanceTab(QWidget):
                 except Exception as e:
                     errores.append(f"Fila {r+1}: {e}")
             self.db.conn.commit()
+
         finally:
             cur.close()
 
@@ -333,6 +344,8 @@ class AvanceTab(QWidget):
             self._notify("No se pudo guardar ningún avance.\n" + "\n".join(errores), "error"); return
 
         self._recalcular_estado()
+        # ► Notifica a quien esté escuchando
+        self.progressSaved.emit(self.current_atajado)
         if errores:
             self._notify("Avance guardado con advertencias:\n" + "\n".join(errores), "warning")
         else:

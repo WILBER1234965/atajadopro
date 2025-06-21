@@ -69,17 +69,49 @@ class MainWindow(QMainWindow):
         self.tabs.tabBar().setVisible(False)       # ocultar pestañas
         self.setCentralWidget(self.tabs)
 
+        # Mapa título → índice
         self._title_to_index: dict[str, int] = {}
+
+        # Referencias a cada widget de pestaña para refrescar luego
+        self.dashboard_tab = None
+        self.items_tab     = None
+        self.atajados_tab  = None
+        self.summary_tab   = None
+        self.avance_tab    = None
 
         for module_name, class_name, title in _TABS:
             try:
                 module  = import_module(f"tabs.{module_name}")
                 cls     = getattr(module, class_name)
-                widget  = cls(self.db)
+                widget  = cls(self.db)  # AvanceTab ya emite señal progressSaved
             except Exception as exc:               # pragma: no cover
                 widget  = QLabel(f"Error cargando {title}: {exc}")
+
             idx = self.tabs.addTab(widget, title)
             self._title_to_index[title] = idx
+
+            # Guardar referencias para poder refrescar
+            if title == "Dashboard":
+                self.dashboard_tab = widget
+            elif title == "Ítems":
+                self.items_tab = widget
+            elif title == "Atajados":
+                self.atajados_tab = widget
+            elif title == "Resumen":
+                self.summary_tab = widget
+            elif title == "Avance":
+                self.avance_tab = widget
+
+        # Conexión de señal global cuando se guarda avance
+        if self.avance_tab is not None and hasattr(self.avance_tab, "progressSaved"):
+            if self.items_tab is not None and hasattr(self.items_tab, "refresh"):
+                self.avance_tab.progressSaved.connect(lambda *_: self.items_tab.refresh())
+            if self.dashboard_tab is not None and hasattr(self.dashboard_tab, "refresh"):
+                self.avance_tab.progressSaved.connect(lambda *_: self.dashboard_tab.refresh())
+            if self.summary_tab is not None and hasattr(self.summary_tab, "refresh"):
+                self.avance_tab.progressSaved.connect(lambda *_: self.summary_tab.refresh())
+            if self.atajados_tab is not None and hasattr(self.atajados_tab, "refresh"):
+                self.avance_tab.progressSaved.connect(lambda *_: self.atajados_tab.refresh())
 
         self.tabs.currentChanged.connect(self._update_status)
 
@@ -279,6 +311,7 @@ class MainWindow(QMainWindow):
                 if hasattr(widget, method):
                     getattr(widget, method)()
         self._update_title()
+
 
     # --------------------------------------------------------------------- #
     # Diálogo “Acerca de…”
