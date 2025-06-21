@@ -340,6 +340,7 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event: QCloseEvent):  # noqa: N802 (Qt naming)
         if self._maybe_save():
             event.accept()
+            self.manager.close()
         else:
             event.ignore()
 

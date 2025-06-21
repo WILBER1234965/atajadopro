@@ -43,7 +43,7 @@ class ItemsTab(QWidget):
         self.import_btn = QPushButton("📥 Importar")
         self.add_btn    = QPushButton("➕ Añadir")
         self.del_btn    = QPushButton("🗑 Eliminar")
-        self.save_btn   = QPushButton("💾 Guardar")
+        self.save_btn   = QPushButton("✔ Confirmar")
         self.search     = QLineEdit(placeholderText="Filtrar…")
         for w in (self.import_btn, self.add_btn, self.del_btn, self.save_btn, self.search):
             toolbar.addWidget(w)
@@ -341,10 +341,10 @@ class ItemsTab(QWidget):
     # ------------------------------------------------------------------ #
     def save_changes(self):
         if not self._dirty:
-            QMessageBox.information(self, "Guardar", "No hay cambios pendientes.")
+            QMessageBox.information(self, "Confirmar", "No hay cambios pendientes.")
             return
         self._dirty = False
-        QMessageBox.information(self, "Guardar", "Cambios de ítems guardados.")
+        QMessageBox.information(self, "Confirmar", "Cambios confirmados.")
 
     def can_close(self) -> bool:
         if not self._dirty:

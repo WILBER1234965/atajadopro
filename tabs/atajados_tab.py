@@ -32,7 +32,7 @@ class AtajadosTab(QWidget):
         self.import_btn = QPushButton("📥 Importar Atajados")
         self.add_btn    = QPushButton("➕ Registrar Atajado")
         self.del_btn    = QPushButton("🗑 Eliminar Atajado")
-        self.save_btn   = QPushButton("💾 Guardar Cambios")
+        self.save_btn   = QPushButton("✔ Confirmar")
         for w in (self.import_btn, self.add_btn, self.save_btn, self.del_btn):
             toolbar.addWidget(w)
         toolbar.addStretch()
@@ -97,6 +97,7 @@ class AtajadosTab(QWidget):
                 else pd.read_csv(path)
             )
             # Columnas requeridas: 'COMUNIDAD','ATAJADO','NOMBRE','CI','ESTE','NORTE'
+            repetidos = 0
             for _, row in df.iterrows():
                 com = str(row.get("COMUNIDAD", "")).strip()
                 num = str(row.get("ATAJADO", "")).replace("Atajado #", "").strip()
@@ -105,6 +106,10 @@ class AtajadosTab(QWidget):
                 e   = float(row.get("ESTE", 0))
                 n   = float(row.get("NORTE", 0))
 
+                if self.db.fetchone("SELECT 1 FROM atajados WHERE number=?", (int(num),)):
+                    repetidos += 1
+                    continue
+
                 self.db.execute(
                     "INSERT INTO atajados(comunidad, number, beneficiario, ci, coord_e, coord_n) "
                     "VALUES(?,?,?,?,?,?)",
@@ -112,7 +117,10 @@ class AtajadosTab(QWidget):
                 )
             self._dirty = True
             self.refresh()
-            QMessageBox.information(self, "Importación", "Atajados importados correctamente.")
+            msg = "Atajados importados correctamente."
+            if repetidos:
+                msg += f"\n{repetidos} duplicados omitidos."
+            QMessageBox.information(self, "Importación", msg)
         except Exception as ex:
             QMessageBox.critical(self, "Error de importación", f"No se pudo importar:\n{ex}")
 
@@ -134,6 +142,11 @@ class AtajadosTab(QWidget):
             try:
                 if not com.text() or not ben.text():
                     raise ValueError
+                if self.db.fetchone(
+                    "SELECT 1 FROM atajados WHERE number=?", (int(num.text()),)
+                ):
+                    QMessageBox.warning(dlg, "Error", "Ese número de atajado ya existe.")
+                    return
                 self.db.execute(
                     "INSERT INTO atajados(comunidad, number, beneficiario, ci, coord_e, coord_n) "
                     "VALUES(?,?,?,?,?,?)",
@@ -192,10 +205,10 @@ class AtajadosTab(QWidget):
     # ------------------------------------------------------------------ #
     def save_changes(self):
         if not self._dirty:
-            QMessageBox.information(self, "Guardar", "No hay cambios pendientes.")
+            QMessageBox.information(self, "Confirmar", "No hay cambios pendientes.")
             return
         self._dirty = False
-        QMessageBox.information(self, "Guardar", "Cambios de atajados guardados.")
+        QMessageBox.information(self, "Confirmar", "Cambios confirmados.")
 
     # ------------------------------------------------------------------ #
     def can_close(self) -> bool:

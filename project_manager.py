@@ -147,5 +147,9 @@ class ProyectoManager(QObject):
             rmtree(self._temp_dir, ignore_errors=True)
             self._temp_dir = None
 
+    def close(self):
+        """Cerrar y limpiar recursos temporales."""
+        self._cleanup()
+        
     def __del__(self):
         self._cleanup()

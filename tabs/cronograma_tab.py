@@ -128,7 +128,12 @@ class CronogramaTab(QWidget):
         ends = [t["end"] for t in self.tasks]
         min_date = min(starts) - datetime.timedelta(days=1)
         max_date = max(ends) + datetime.timedelta(days=1)
-        ax.set_xlim(mdates.date2num(min_date), mdates.date2num(max_date))
+        scale = int(self.cmb_scale.currentText()) / 100
+        start_num = mdates.date2num(min_date)
+        end_num = mdates.date2num(max_date)
+        mid = (start_num + end_num) / 2
+        span = (end_num - start_num) * scale / 2
+        ax.set_xlim(mid - span, mid + span)
 
         # Formato eje X: meses y semanas
         ax.xaxis.set_major_locator(mdates.MonthLocator())

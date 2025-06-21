@@ -311,32 +311,37 @@ class AvanceTab(QWidget):
         today = QDate.currentDate().toString("yyyy-MM-dd")
         filas_ok, errores = 0, []
 
-        for r in range(self.table.rowCount()):
-            id_item = self.table.item(r, self.COL_ID)
-            if not id_item:
-                continue
-            try:
-                iid = int(id_item.text())
-                pct = int(self.table.cellWidget(r, self.COL_PCT).currentText().rstrip(" %"))
-                ini = self.table.cellWidget(r, self.COL_INI).date().toString("yyyy-MM-dd")
-                fin = self.table.cellWidget(r, self.COL_FIN).date().toString("yyyy-MM-dd")
-                com = self.table.cellWidget(r, self.COL_COM).text()
-                self.db.execute(
-                    """
-                    INSERT INTO avances(atajado_id, item_id, date,
-                                        quantity, start_date, end_date, comment)
-                    VALUES(?,?,?,?,?,?,?)
-                    ON CONFLICT(atajado_id,item_id) DO UPDATE SET
-                        date=excluded.date, quantity=excluded.quantity,
-                        start_date=excluded.start_date, end_date=excluded.end_date,
-                        comment=excluded.comment
-                    """,
-                    (self.current_atajado, iid, today, pct, ini, fin, com)
-                )
-                filas_ok += 1
-            except Exception as e:
-                errores.append(f"Fila {r+1}: {e}")
-
+        cur = self.db.conn.cursor()
+        try:
+            for r in range(self.table.rowCount()):
+                id_item = self.table.item(r, self.COL_ID)
+                if not id_item:
+                    continue
+                try:
+                    iid = int(id_item.text())
+                    pct = int(self.table.cellWidget(r, self.COL_PCT).currentText().rstrip(" %"))
+                    ini = self.table.cellWidget(r, self.COL_INI).date().toString("yyyy-MM-dd")
+                    fin = self.table.cellWidget(r, self.COL_FIN).date().toString("yyyy-MM-dd")
+                    com = self.table.cellWidget(r, self.COL_COM).text()
+                    cur.execute(
+                        """
+                        INSERT INTO avances(atajado_id, item_id, date,
+                                            quantity, start_date, end_date, comment)
+                        VALUES(?,?,?,?,?,?,?)
+                        ON CONFLICT(atajado_id,item_id) DO UPDATE SET
+                            date=excluded.date, quantity=excluded.quantity,
+                            start_date=excluded.start_date, end_date=excluded.end_date,
+                            comment=excluded.comment
+                        """,
+                        (self.current_atajado, iid, today, pct, ini, fin, com)
+                    )
+                    filas_ok += 1
+                except Exception as e:
+                    errores.append(f"Fila {r+1}: {e}")
+            self.db.conn.commit()
+        finally:
+            cur.close()
+            
         if filas_ok == 0:
             self._notify("No se pudo guardar ningún avance.\n" + "\n".join(errores), "error"); return
 
