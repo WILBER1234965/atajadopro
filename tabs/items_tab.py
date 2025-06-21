@@ -16,8 +16,8 @@ from database import Database
 
 class ItemsTab(QWidget):
     # Índices de columna
-    COL_ID, COL_CODE, COL_ACTIVO, COL_APLICA, COL_NAME, COL_UNIT, \
-    COL_QTY, COL_PU, COL_TOTAL, COL_PROGRESS, COL_ACTIONS = range(11)
+    COL_ID, COL_CODE, COL_ACTIVO, COL_NAME, COL_UNIT, \
+    COL_QTY, COL_PU, COL_TOTAL, COL_PROGRESS, COL_ACTIONS = range(10)
     # ------------------------------------------------------------------ #
     def __init__(self, db: Database):
         super().__init__()
@@ -77,22 +77,17 @@ class ItemsTab(QWidget):
     def refresh(self) -> None:
         self._loading = True
         rows = self.db.fetchall(
-            "SELECT id, code, name, unit, total, incidence, active, progress, aplica FROM items"
+            "SELECT id, code, name, unit, total, incidence, active, progress FROM items"
         )
         self.table.setRowCount(len(rows))
-        self.table.setColumnCount(11)
+        self.table.setColumnCount(10)
         self.table.setHorizontalHeaderLabels([
-            "ID", "Código", "Activo", "Aplica", "Nombre", "Unidad",
+            "ID", "Código", "Activo", "Nombre", "Unidad",
             "Cant.", "P.U.", "Total", "Avance (%)", "Acciones"
         ])
 
-        n_ata = self.db.fetchone("SELECT COUNT(*) FROM atajados")[0] or 0
-        for r, (iid, code, name, unit, qty, pu, active, progress, aplica) in enumerate(rows):
-            aplica_si = (aplica or "").strip().lower() in ("si", "sí")
-            if aplica_si and qty != n_ata:
-                self.db.execute("UPDATE items SET total=? WHERE id=?", (n_ata, iid))
-                qty = n_ata
-            qty_display = n_ata if aplica_si else qty
+        for r, (iid, code, name, unit, qty, pu, active, progress) in enumerate(rows):
+            qty_display = qty
             # ID
             itm_id = QTableWidgetItem(str(iid))
             itm_id.setFlags(Qt.ItemFlag.ItemIsSelectable | Qt.ItemFlag.ItemIsEnabled)
@@ -108,12 +103,6 @@ class ItemsTab(QWidget):
                 lambda idx, iid=iid: self._toggle_active(idx, iid))
             self.table.setCellWidget(r, self.COL_ACTIVO, combo_act)
 
-            # Aplica división
-            combo_app = QComboBox(); combo_app.addItems(["No", "Sí"])
-            combo_app.setCurrentText(aplica or "No")
-            combo_app.currentIndexChanged.connect(
-                lambda idx, iid=iid: self._toggle_aplica(idx, iid))
-            self.table.setCellWidget(r, self.COL_APLICA, combo_app)
 
             # Nombre, Unidad, Cant., P.U.
             for col, val in (
@@ -122,8 +111,7 @@ class ItemsTab(QWidget):
                 (self.COL_QTY,  qty_display),
                 (self.COL_PU,   pu)
             ):
-                editable = not (col == self.COL_QTY and aplica_si)
-                self._add_editable(r, col, val, editable=editable)
+                self._add_editable(r, col, val)
 
             # Total
             tot_item = QTableWidgetItem(str(qty_display * pu))
@@ -175,13 +163,6 @@ class ItemsTab(QWidget):
         self.db.execute("UPDATE items SET active=? WHERE id=?", (1 if idx else 0, iid))
         self._dirty = True
 
-    def _toggle_aplica(self, idx: int, iid: int):
-        txt = "Sí" if idx else "No"
-        self.db.execute("UPDATE items SET aplica=? WHERE id=?", (txt, iid))
-        if idx:
-            n_ata = self.db.fetchone("SELECT COUNT(*) FROM atajados")[0] or 0
-            self.db.execute("UPDATE items SET total=? WHERE id=?", (n_ata, iid))
-        self.refresh()
 
     def _update_pct(self, txt: str, iid: int):
         self.db.execute(
@@ -196,11 +177,6 @@ class ItemsTab(QWidget):
         if col not in (self.COL_CODE, self.COL_NAME, self.COL_UNIT,
                        self.COL_QTY, self.COL_PU):
             return
-        if col == self.COL_QTY:
-            combo = self.table.cellWidget(row, self.COL_APLICA)
-            if combo and combo.currentText() == "Sí":
-                self.refresh()
-                return
 
         iid     = int(self.table.item(row, self.COL_ID).text())
         val_txt = self.table.item(row, col).text()

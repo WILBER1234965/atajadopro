@@ -192,7 +192,7 @@ class AvanceTab(QWidget):
 
         # Datos de ítems
         rows = self.db.fetchall(
-            "SELECT id, name, total, incidence, aplica FROM items WHERE active=1 ORDER BY id"
+            "SELECT id, name, total, incidence FROM items WHERE active=1 ORDER BY id"
         )
         if not rows:
             self._clear_ui(); return
@@ -205,11 +205,8 @@ class AvanceTab(QWidget):
         self.table.setRowCount(len(rows)); self.table.setColumnCount(len(hdrs))
         self.table.setHorizontalHeaderLabels(hdrs)
 
-        def es_si(txt: str | None) -> bool:
-            return (txt or "").strip().lower() in ("si", "sí")
-
-        for r, (iid, nom, qty_tot, pu, aplica) in enumerate(rows):
-            qty = round(qty_tot / n_ata, 3) if es_si(aplica) else qty_tot
+        for r, (iid, nom, qty_tot, pu) in enumerate(rows):
+            qty = round(qty_tot / n_ata, 3)
             total = round(qty * pu, 2)
             for c, v in enumerate((iid, nom, f"{qty:g}", f"{pu:.2f}", f"{total:.2f}")):
                 it = QTableWidgetItem(str(v))
@@ -348,7 +345,7 @@ class AvanceTab(QWidget):
         n_ata = self.db.fetchone("SELECT COUNT(*) FROM atajados")[0] or 1
         rows = self.db.fetchall(
             """
-            SELECT i.total, i.incidence, i.aplica,
+            SELECT i.total, i.incidence,
                    COALESCE(a.quantity, 0)
             FROM items i
             LEFT JOIN avances a
@@ -357,8 +354,8 @@ class AvanceTab(QWidget):
             """, (self.current_atajado,)
         )
         total_val = ejec_val = 0.0
-        for qty_tot, pu, aplica, pct in rows:
-            qty = qty_tot / n_ata if (aplica or "").strip().lower() in ("si", "sí") else qty_tot
+        for qty_tot, pu, pct in rows:
+            qty = qty_tot / n_ata
             val = qty * pu
             total_val += val; ejec_val += val * pct / 100.0
 
