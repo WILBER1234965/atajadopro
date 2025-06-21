@@ -42,6 +42,7 @@ class AtajadosTab(QWidget):
         self.table = QTableWidget()
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table.setAlternatingRowColors(True)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setStretchLastSection(True)

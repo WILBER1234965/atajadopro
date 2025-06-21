@@ -12,7 +12,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, QSize, QDate, QEasingCurve, QPropertyAnimation
+from PyQt6.QtCore import Qt, QSize, QDate
 from PyQt6.QtGui import QPixmap, QIcon, QAction, QRegularExpressionValidator
 from PyQt6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QLabel, QComboBox, QCompleter,
@@ -104,13 +104,26 @@ class AvanceTab(QWidget):
             }""")
         root.addWidget(self.info_lbl)
 
-        # ───────────── Splitter principal ─────────────
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        root.addWidget(splitter, 1)
+        # ───────────── Tabla de ítems ─────────────
+        self.table = QTableWidget()
+        self.table.setVerticalScrollMode(QTableWidget.ScrollMode.ScrollPerPixel)
+        hdr = self.table.horizontalHeader()
+        hdr.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        hdr.setStretchLastSection(True)
+        root.addWidget(self.table, 1)
 
-        # -------- LADO IZQUIERDO: miniaturas + botón -------
-        left = QWidget(); l_lay = QVBoxLayout(left); splitter.addWidget(left)
+        btn_bar = QHBoxLayout()
+        self.save_btn = QPushButton(QIcon.fromTheme("document-save"), "Guardar avance")
+        self.save_btn.clicked.connect(self.save_progress)
+        btn_bar.addStretch(); btn_bar.addWidget(self.save_btn)
+        root.addLayout(btn_bar)
 
+        # ───────────── Panel inferior de imágenes ─────────────
+        img_split = QSplitter(Qt.Orientation.Horizontal)
+        img_split.setFixedHeight(250)
+        root.addWidget(img_split)
+
+        left = QWidget(); l_lay = QVBoxLayout(left); img_split.addWidget(left)
         self.img_list = QListWidget(viewMode=QListWidget.ViewMode.IconMode)
         self.img_list.setIconSize(QSize(100, 100))
         self.img_list.setResizeMode(QListWidget.ResizeMode.Adjust)
@@ -125,34 +138,11 @@ class AvanceTab(QWidget):
         self.img_btn.clicked.connect(self._select_images)
         l_lay.addWidget(self.img_btn)
 
-        # -------- LADO DERECHO: tabla + vista previa -------
-        right = QWidget(); r_lay = QVBoxLayout(right); splitter.addWidget(right)
-
-        self.table = QTableWidget()
-        self.table.setVerticalScrollMode(QTableWidget.ScrollMode.ScrollPerPixel)
-        hdr = self.table.horizontalHeader()
-        hdr.setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        hdr.setStretchLastSection(True)
-        r_lay.addWidget(self.table, 3)
+        right = QWidget(); r_lay = QVBoxLayout(right); img_split.addWidget(right)
 
         self.big_preview = QLabel(alignment=Qt.AlignmentFlag.AlignCenter)
-        self.big_preview.setMinimumHeight(220)
         self.big_preview.setStyleSheet("border:1px solid #aaa;")
-        r_lay.addWidget(self.big_preview, 2)
-
-        btn_bar = QHBoxLayout()
-        self.save_btn = QPushButton(QIcon.fromTheme("document-save"), "Guardar avance")
-        self.save_btn.clicked.connect(self.save_progress)
-        btn_bar.addStretch(); btn_bar.addWidget(self.save_btn)
-        r_lay.addLayout(btn_bar)
-
-        # Animación suave al mover splitter
-        splitter.setSizes([180, 520])
-        self._split_anim = QPropertyAnimation(splitter, b'sizes')
-        self._split_anim.setDuration(500)
-        self._split_anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-        splitter.splitterMoved.connect(lambda *_: self._split_anim.stop())
-
+        r_lay.addWidget(self.big_preview)
         # Inicial
         self._populate_selector()
         self.at_combo.currentTextChanged.connect(self.load_items)
@@ -341,7 +331,7 @@ class AvanceTab(QWidget):
             self.db.conn.commit()
         finally:
             cur.close()
-            
+
         if filas_ok == 0:
             self._notify("No se pudo guardar ningún avance.\n" + "\n".join(errores), "error"); return
 
