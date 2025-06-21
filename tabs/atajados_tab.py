@@ -41,6 +41,7 @@ class AtajadosTab(QWidget):
         # Tabla
         self.table = QTableWidget()
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.DoubleClicked)
+        self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setVerticalScrollMode(QAbstractItemView.ScrollMode.ScrollPerPixel)
         self.table.setAlternatingRowColors(True)

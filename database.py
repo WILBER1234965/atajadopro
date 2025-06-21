@@ -88,9 +88,8 @@ class Database:
                     name        TEXT,
                     unit        TEXT,
                     total       REAL,
-                    unit_price  REAL DEFAULT 0,     -- alias futuro
-                    incidence   REAL DEFAULT 0,     -- PU actual
-                    aplica      TEXT DEFAULT 'No',  -- 'Sí' o 'No'
+                    unit_price  REAL DEFAULT 0,
+                    incidence   REAL DEFAULT 0,
                     active      INTEGER DEFAULT 0,
                     progress    REAL DEFAULT 0
                 )
@@ -171,9 +170,6 @@ class Database:
                 if self._column_exists("items", "incidence"):
                     c.execute("UPDATE items SET unit_price = incidence")
 
-            # items.aplica
-            if not self._column_exists("items", "aplica"):
-                c.execute("ALTER TABLE items ADD COLUMN aplica TEXT DEFAULT 'No'")
 
             # atajados.este / norte (alias)
             if not self._column_exists("atajados", "este"):
