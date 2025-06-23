@@ -225,3 +225,5 @@ class Database:
             executed += (pct / 100.0) * cost
 
         return (executed / total_cost * 100.0) if total_cost else 0.0
+    
+
