@@ -35,8 +35,9 @@ class CronogramaTab(QWidget):
         self.container = QFrame()
         self.container_layout = QVBoxLayout(self.container)
 
-        # Canvas de días de semana (superior)
-        self.days_canvas = FigureCanvasQTAgg(plt.Figure(figsize=(20, 1)))
+        # Canvas de encabezados de calendario (mes, día, semana)
+        # Se utilizan tres filas: meses, día numérico y letra del día
+        self.days_canvas = FigureCanvasQTAgg(plt.Figure(figsize=(20, 1.5)))
         self.days_ax = self.days_canvas.figure.subplots()
         self.container_layout.addWidget(self.days_canvas)
 
@@ -132,20 +133,45 @@ class CronogramaTab(QWidget):
         self.ax_top.xaxis.set_ticks_position("top")
         self.ax_top.spines["bottom"].set_visible(False)
 
-        # ─────── Cuadros superiores de días de la semana ─────── #
+        # ─────── Cuadros superiores de calendario ─────── #
+        # Tres filas: 2-meses, 1-día numérico, 0-letra de día
         self.days_ax.set_xlim(self.ax.get_xlim())
-        self.days_ax.set_ylim(0, 1)
+        self.days_ax.set_ylim(0, 3)
         self.days_ax.axis("off")
 
+        # Filas de días de semana y número de día
         dia_actual = pd.Timestamp(start)
         while dia_actual <= end:
             dnum = mdates.date2num(dia_actual)
             nombre = dias[dia_actual.weekday()]
+
+
+            # Cuadro con número de día
+            self.days_ax.add_patch(
+                plt.Rectangle((dnum - 0.5, 1), 1, 1, facecolor="white", edgecolor="black")
+            )
+            self.days_ax.text(dnum, 1.5, str(dia_actual.day), va="center", ha="center", fontsize=8)
+
+            # Cuadro con letra del día
             self.days_ax.add_patch(
                 plt.Rectangle((dnum - 0.5, 0), 1, 1, facecolor="white", edgecolor="black")
             )
             self.days_ax.text(dnum, 0.5, nombre, va="center", ha="center", fontsize=8)
             dia_actual += pd.Timedelta(days=1)
+
+        # Filas de meses
+        month_start = pd.Timestamp(start.replace(day=1))
+        while month_start <= end:
+            next_month = (month_start + pd.DateOffset(months=1)).replace(day=1)
+            month_end = min(next_month - pd.Timedelta(days=1), end)
+            start_num = mdates.date2num(month_start)
+            width = (month_end - month_start).days + 1
+            self.days_ax.add_patch(
+                plt.Rectangle((start_num - 0.5, 2), width, 1, facecolor="#dddddd", edgecolor="black")
+            )
+            self.days_ax.text(start_num - 0.5 + width / 2, 2.5, month_start.strftime("%b"),
+                              va="center", ha="center", fontsize=8)
+            month_start = next_month
 
         # Cuadrícula
         self.ax.grid(axis="y", color="#cccccc", linestyle="-", linewidth=0.5)
